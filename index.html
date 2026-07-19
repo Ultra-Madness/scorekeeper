@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Scorekeeper</title>
+<meta name="theme-color" content="#0a0a0a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Scorekeeper">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800;900&family=Chivo+Mono:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overscroll-behavior:none}
+  body{font-family:'Archivo',system-ui,sans-serif;-webkit-font-smoothing:antialiased;background:#0a0a0a}
+  button,input{font-family:inherit}
+  input{-webkit-user-select:text;user-select:text}
+  #app{position:fixed;inset:0;display:flex;flex-direction:column;background:var(--bg);overflow:hidden;
+    --bg:#141414;--bar:#0a0a0a;--sheet:#1a1a1a;--field:#111;--ctrl:#1a1a1a;--ctrl-bd:#2a2a2a;--line:#262626;--line2:#333;
+    --text:#fff;--sub:#9a9a9a;--sub2:#8a8a8a;--muted:#666;--accentface:#fff;--accenttext:#141414;
+    --pillbd:rgba(255,255,255,.18);--pillbg:rgba(255,255,255,.06);--pilltext:#fff;--pillon-bd:rgba(255,255,255,.5);--pillon-bg:rgba(255,255,255,.14);
+    --stripend:#0d0d0d;--switchoff:#3a3a3a;--badgebg:rgba(0,0,0,.35);--badgebd:rgba(255,255,255,.25);--badgetext:#fff}
+  #app[data-theme="light"]{
+    --bg:#f1f0ec;--bar:#ffffff;--sheet:#ffffff;--field:#f3f2ee;--ctrl:#f5f4f0;--ctrl-bd:#e2e0d9;--line:#e6e4dd;--line2:#dcdad3;
+    --text:#141414;--sub:#7a776e;--sub2:#8a877e;--muted:#a8a49a;--accentface:#141414;--accenttext:#ffffff;
+    --pillbd:rgba(0,0,0,.14);--pillbg:rgba(0,0,0,.04);--pilltext:#141414;--pillon-bd:rgba(0,0,0,.3);--pillon-bg:rgba(0,0,0,.08);
+    --stripend:#ffffff;--switchoff:#d2cfc7;--badgebg:rgba(0,0,0,.06);--badgebd:rgba(0,0,0,.15);--badgetext:#141414}
+  .noscroll::-webkit-scrollbar{display:none}
+  .noscroll{scrollbar-width:none}
+  @keyframes sheetup{from{transform:translateY(100%)}to{transform:translateY(0)}}
+  @keyframes fadein{from{opacity:0}to{opacity:1}}
+  @keyframes pop{0%{transform:scale(.6);opacity:0}60%{transform:scale(1.12)}100%{transform:scale(1);opacity:1}}
+  @keyframes bump{0%{transform:scale(1)}35%{transform:scale(1.28)}100%{transform:scale(1)}}
+  .bump{animation:bump .32s cubic-bezier(.34,1.56,.64,1)}
+  .scrim{position:absolute;inset:0;background:rgba(0,0,0,.62);display:flex;align-items:flex-end;animation:fadein .15s}
+  .scrim.col{flex-direction:column;justify-content:flex-end;align-items:stretch}
+  .sheet{width:100%;background:var(--sheet);border-radius:28px 28px 0 0;padding:26px 24px calc(34px + env(safe-area-inset-bottom,0px));animation:sheetup .22s ease-out}
+  .sheet.list{max-height:82%;display:flex;flex-direction:column;padding:0 0 calc(34px + env(safe-area-inset-bottom,0px))}
+  .noanim .scrim{animation:none}
+  .noanim .sheet{animation:none}
+  .title{font:900 21px 'Archivo';color:var(--text)}
+  .subtitle{font:500 13px 'Archivo';color:var(--sub);margin-top:6px}
+  .closex{width:40px;height:40px;border-radius:12px;border:1px solid var(--line2);background:var(--field);color:var(--text);font-size:16px;cursor:pointer}
+  .primary{flex:none;padding:0 22px;height:50px;border-radius:14px;border:none;background:var(--accentface);color:var(--accenttext);font:800 15px 'Archivo';cursor:pointer}
+  .numfield{flex:1;min-width:0;height:50px;background:var(--field);border:1px solid var(--line2);border-radius:14px;color:var(--text);font:800 16px 'Chivo Mono';text-align:center;outline:none}
+  .opt{padding:0 16px;height:46px;border-radius:13px;font:800 15px 'Chivo Mono';cursor:pointer;border:1px solid var(--line2);background:var(--field);color:var(--sub)}
+  .opt.on{border:1px solid var(--accentface);background:var(--accentface);color:var(--accenttext)}
+  .chip{width:44px;height:44px;border-radius:13px;font:800 15px 'Chivo Mono';cursor:pointer;border:1px solid var(--ctrl-bd);background:var(--ctrl);color:var(--sub)}
+  .chip.on{border:1px solid var(--accentface);background:var(--accentface);color:var(--accenttext)}
+  .tcchip{flex:1;height:44px;border-radius:13px;font:800 15px 'Archivo';cursor:pointer;border:1px solid var(--line2);background:var(--field);color:var(--sub)}
+  .tcchip.on{border:1px solid var(--accentface);background:var(--accentface);color:var(--accenttext)}
+  .sw{width:54px;height:31px;border-radius:16px;border:none;cursor:pointer;background:var(--switchoff);position:relative;flex:none;transition:background .15s}
+  .sw.on{background:#22c55e}
+  .sw .knob{position:absolute;top:3px;left:3px;width:25px;height:25px;border-radius:50%;background:#fff;transition:left .15s;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+  .sw.on .knob{left:26px}
+  .setrow{display:flex;align-items:center;justify-content:space-between;padding:18px 2px 6px;border-bottom:1px solid var(--line)}
+  .setrow:last-child{border-bottom:none}
+  .pill{display:flex;align-items:center;gap:4px;padding:6px 10px;border-radius:20px;border:1px solid var(--pillbd);background:var(--pillbg);color:var(--pilltext);font:800 12px 'Archivo';cursor:pointer}
+  .pill.on{border-color:var(--pillon-bd);background:var(--pillon-bg)}
+  .sqbtn{width:44px;height:44px;border-radius:13px;border:1px solid var(--ctrl-bd);background:var(--ctrl);font-size:16px;cursor:pointer}
+  .badge{flex:none;height:42px;padding:0 12px;border-radius:13px;border:1px solid var(--badgebd);background:var(--badgebg);color:var(--badgetext);font:800 15px 'Chivo Mono';cursor:pointer;font-variant-numeric:tabular-nums}
+  .badge.warn{border-color:#e5484d;background:rgba(229,72,77,.2);color:#ff6b70}
+</style>
+</head>
+<body>
+<div id="app" data-theme="dark"></div>
+<script>
+'use strict';
+const PALETTE=['#e5484d','#3b82f6','#22c55e','#f59e0b','#8b5cf6','#06b6d4','#ec4899','#84cc16'];
+const TEAMCOLORS=['#3b82f6','#e5484d','#22c55e','#f59e0b'];
+const uid=(p)=>p+'_'+Math.random().toString(36).slice(2,8);
+const esc=(s)=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const readJSON=(k)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):null}catch(e){return null}};
+const writeJSON=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
+const fmtTime=(sec)=>{const m=Math.floor(sec/60),s=sec%60;return m+':'+String(s).padStart(2,'0')};
+const defaultName=()=>{const d=new Date();return d.toLocaleDateString([],{month:'short',day:'numeric'})+' '+d.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})};
+
+const seed=(names)=>names.map((n,i)=>({id:uid('p'),name:n,score:0,ci:i%PALETTE.length,team:i%2}));
+
+const App={
+  state:{
+    sound:true, step:1, confirm:false, hist:[],
+    target:0, targetSheet:false, winnerAck:false,
+    log:[], logSheet:false, round:1, turnIndex:0,
+    timerDuration:0, timeLeft:0, timerRunning:false, timerSheet:false,
+    gamesSheet:false, saveName:'', saves:[],
+    haptics:true, soundSheet:false,
+    teamMode:false, teamCount:2, teamNames:['Team A','Team B','Team C','Team D'],
+    theme:'dark',
+    players: seed(['Red','Blue','Green','Gold'])
+  },
+  _lastBump:null,
+  _openSheets:{},
+  _persistKey:'',
+
+  init(){
+    const cur=readJSON('scorekeeper_current');
+    if(cur&&Array.isArray(cur.players)&&cur.players.length>=2){
+      Object.assign(this.state,cur,{timeLeft:cur.timerDuration||0,timerRunning:false});
+    }
+    const th=readJSON('scorekeeper_theme');
+    if(th==='light'||th==='dark') this.state.theme=th;
+    this._persistKey=this.persistKey();
+    this.render();
+    setInterval(()=>this.tick(),1000);
+  },
+
+  setState(patch){
+    if(typeof patch==='function') patch=patch(this.state);
+    if(!patch) return;
+    Object.assign(this.state,patch);
+    const k=this.persistKey();
+    if(k!==this._persistKey){ writeJSON('scorekeeper_current',this.snapshot()); this._persistKey=k; }
+    if('theme' in patch) writeJSON('scorekeeper_theme',this.state.theme);
+    this.render();
+  },
+  persistKey(){const s=this.state;return JSON.stringify([s.players,s.round,s.turnIndex,s.target,s.step,s.timerDuration,s.log.length,s.teamMode,s.teamCount,s.teamNames])},
+  snapshot(){const{players,round,turnIndex,target,step,timerDuration,log,teamMode,teamCount,teamNames}=this.state;return{players,round,turnIndex,target,step,timerDuration,log,teamMode,teamCount,teamNames}},
+
+  beep(up){
+    const s=this.state;
+    if(s.haptics&&navigator.vibrate) navigator.vibrate(up?12:[8,20,8]);
+    if(!s.sound) return;
+    try{
+      const ac=this._ac||(this._ac=new (window.AudioContext||window.webkitAudioContext)());
+      if(ac.state==='suspended') ac.resume();
+      const o=ac.createOscillator(),g=ac.createGain(),t=ac.currentTime;
+      o.type='triangle';
+      o.frequency.setValueAtTime(up?660:330,t);
+      o.frequency.exponentialRampToValueAtTime(up?990:247,t+.08);
+      g.gain.setValueAtTime(.14,t); g.gain.exponentialRampToValueAtTime(.0001,t+.16);
+      o.connect(g); g.connect(ac.destination); o.start(t); o.stop(t+.17);
+    }catch(e){}
+  },
+  timeUp(){
+    const s=this.state;
+    if(s.haptics&&navigator.vibrate) navigator.vibrate([30,40,30,40,60]);
+    if(!s.sound) return;
+    try{
+      const ac=this._ac||(this._ac=new (window.AudioContext||window.webkitAudioContext)());
+      if(ac.state==='suspended') ac.resume();
+      const o=ac.createOscillator(),g=ac.createGain(),t=ac.currentTime;
+      o.type='sawtooth';
+      o.frequency.setValueAtTime(200,t);
+      g.gain.setValueAtTime(.16,t); g.gain.exponentialRampToValueAtTime(.0001,t+.5);
+      o.connect(g); g.connect(ac.destination); o.start(t); o.stop(t+.5);
+    }catch(e){}
+  },
+
+  change(id,delta){
+    this.beep(delta>=0);
+    this._lastBump=id;
+    this.setState(s=>{
+      const src=s.players.find(p=>p.id===id);
+      if(!src) return null;
+      const total=src.score+delta;
+      const entry={id:uid('e'),kind:'score',name:src.name,ci:src.ci,delta,total};
+      return{
+        hist:[...s.hist,s.players.map(p=>({...p}))].slice(-50),
+        log:[...s.log,entry].slice(-200),
+        players:s.players.map(p=>p.id===id?{...p,score:total}:p)
+      };
+    });
+  },
+  undo(){this.setState(s=>{if(!s.hist.length)return null;const h=[...s.hist];const players=h.pop();
+    const log=[...s.log];if(log.length&&log[log.length-1].kind==='score')log.pop();
+    return{players,hist:h,log}})},
+  cycleColor(id){this.setState(s=>({players:s.players.map(p=>p.id===id?{...p,ci:(p.ci+1)%PALETTE.length}:p)}))},
+  cycleTeam(id){this.setState(s=>({players:s.players.map(p=>p.id===id?{...p,team:((p.team||0)+1)%s.teamCount}:p)}))},
+  rename(id,v){this.setState(s=>({players:s.players.map(p=>p.id===id?{...p,name:v}:p)}))},
+  addPlayer(){this.setState(s=>{if(s.players.length>=8)return null;
+    const used=s.players.map(p=>p.ci);let ci=s.players.length%PALETTE.length;
+    for(let i=0;i<PALETTE.length;i++){if(!used.includes(i)){ci=i;break}}
+    return{players:[...s.players,{id:uid('p'),name:'Player '+(s.players.length+1),score:0,ci,team:s.players.length%s.teamCount}]}})},
+  removePlayer(id){this.setState(s=>{if(s.players.length<=2)return null;const players=s.players.filter(p=>p.id!==id);
+    return{players,turnIndex:Math.min(s.turnIndex,players.length-1)}})},
+  doReset(){this.setState(s=>({confirm:false,winnerAck:false,round:1,turnIndex:0,timeLeft:s.timerDuration,
+    hist:[...s.hist,s.players.map(p=>({...p}))].slice(-50),
+    log:[...s.log,{id:uid('e'),kind:'divider'}].slice(-200),
+    players:s.players.map(p=>({...p,score:0}))}))},
+  endTurn(){this.setState(s=>{
+    const n=s.players.length;const next=(s.turnIndex+1)%n;const wrapped=next===0;
+    const round=wrapped?s.round+1:s.round;
+    const log=wrapped?[...s.log,{id:uid('e'),kind:'round',round}].slice(-200):s.log;
+    return{turnIndex:next,round,log,timeLeft:s.timerDuration}})},
+  playAgain(){this.setState(s=>({winnerAck:false,hist:[],log:[],round:1,turnIndex:0,timeLeft:s.timerDuration,players:s.players.map(p=>({...p,score:0}))}))},
+  setTimer(sec){this.setState({timerDuration:sec,timeLeft:sec,timerRunning:sec>0,timerSheet:false})},
+  toggleTimerRun(){this.setState(s=>s.timerDuration>0?{timerRunning:!s.timerRunning}:null)},
+  toggleTeamMode(){this.setState(s=>{const on=!s.teamMode;
+    const players=on?s.players.map((p,i)=>({...p,team:(typeof p.team==='number'&&p.team<s.teamCount)?p.team:(i%s.teamCount)})):s.players;
+    return{teamMode:on,players}})},
+  setTeamCount(n){this.setState(s=>({teamCount:n,players:s.players.map((p,i)=>({...p,team:(typeof p.team==='number'&&p.team<n)?p.team:(i%n)}))}))},
+  renameTeam(i,v){this.setState(s=>{const teamNames=[...s.teamNames];teamNames[i]=v;return{teamNames}})},
+  loadSaves(){const a=readJSON('scorekeeper_saves');return Array.isArray(a)?a:[]},
+  saveGame(){const name=(this.state.saveName||'').trim()||defaultName();
+    const entry={id:'g_'+Date.now().toString(36),name,date:Date.now(),snap:this.snapshot()};
+    const saves=[entry,...this.loadSaves()].slice(0,50);
+    writeJSON('scorekeeper_saves',saves);
+    this.setState({saves,saveName:defaultName()})},
+  loadGame(id){const g=this.loadSaves().find(g=>g.id===id);if(!g||!g.snap)return;
+    this.setState({...g.snap,timeLeft:g.snap.timerDuration||0,timerRunning:false,confirm:false,winnerAck:false,gamesSheet:false,targetSheet:false,timerSheet:false,logSheet:false,hist:[]})},
+  deleteGame(id){const saves=this.loadSaves().filter(g=>g.id!==id);writeJSON('scorekeeper_saves',saves);this.setState({saves})},
+
+  tick(){
+    const s=this.state;
+    if(s.timerDuration<=0||!s.timerRunning||s.confirm||s.targetSheet||s.timerSheet||s.logSheet||s.gamesSheet||s.soundSheet) return;
+    if(s.timeLeft>1){
+      if(s.timeLeft<=4) this.beep(false);
+      s.timeLeft--;
+      // targeted DOM update so a focused name input isn't blown away every second
+      const b=document.getElementById('timerbadge');
+      if(b){b.textContent=(s.timerRunning?'':'⏸ ')+fmtTime(s.timeLeft);b.classList.toggle('warn',s.timeLeft<=5&&s.timerRunning)}
+      return;
+    }
+    this.timeUp();
+    this.endTurn();
+  },
+
+  derived(){
+    const s=this.state;
+    const max=Math.max(...s.players.map(p=>p.score));
+    const anyScore=s.players.some(p=>p.score!==0);
+    const leader=s.players.find(p=>anyScore&&p.score===max);
+    const activeIdx=s.turnIndex%s.players.length;
+    const active=s.players[activeIdx];
+    const teamTotals=[];
+    for(let i=0;i<s.teamCount;i++) teamTotals.push(s.players.filter(p=>(p.team||0)===i).reduce((a,p)=>a+p.score,0));
+    const teamMax=Math.max(...teamTotals);
+    const anyTeamScore=teamTotals.some(t=>t!==0);
+    const leadTeamIdx=teamTotals.indexOf(teamMax);
+    let winner;
+    if(s.teamMode){
+      winner=(s.target>0&&anyTeamScore&&teamMax>=s.target)?{name:s.teamNames[leadTeamIdx],score:teamMax,bg:TEAMCOLORS[leadTeamIdx]}:null;
+    }else{
+      winner=(s.target>0&&max>=s.target&&leader)?{name:leader.name,score:leader.score,bg:PALETTE[leader.ci]}:null;
+    }
+    return{max,anyScore,leader,activeIdx,active,teamTotals,teamMax,anyTeamScore,winner};
+  },
+
+  render(){
+    const s=this.state, d=this.derived();
+    const app=document.getElementById('app');
+    app.dataset.theme=s.theme;
+
+    // preserve scroll positions across re-render
+    const scrolls={};
+    app.querySelectorAll('[data-scroll]').forEach(el=>scrolls[el.dataset.scroll]=el.scrollTop);
+
+    const open={confirm:s.confirm,target:s.targetSheet,settings:s.soundSheet,games:s.gamesSheet,timer:s.timerSheet,log:s.logSheet,winner:!!d.winner&&!s.winnerAck};
+    const anim=(key)=>open[key]&&!this._openSheets[key]?'':' noanim';
+
+    const min=s.players.length<=2, full=s.players.length>=8;
+    const activeColor=d.active?(s.teamMode?TEAMCOLORS[d.active.team||0]:PALETTE[d.active.ci]):'#888';
+    const logCount=s.log.filter(e=>e.kind==='score').length;
+
+    let h='';
+
+    // ── Toolbar ──
+    h+=`<div style="flex:none;padding:calc(env(safe-area-inset-top,0px) + 10px) 12px 12px;display:flex;align-items:center;gap:7px;background:var(--bg)">
+      <button data-act="open-games" style="display:flex;align-items:center;gap:4px;padding:6px 4px;background:transparent;border:none;color:var(--text);font:900 16px 'Archivo';letter-spacing:-.01em;cursor:pointer;flex:none">Games <span style="font-size:10px;opacity:.6">▾</span></button>
+      <div style="flex:1"></div>
+      <button data-act="open-log" class="pill">📋 ${logCount}</button>
+      <button data-act="open-timer" class="pill${s.timerDuration>0?' on':''}">⏱ ${s.timerDuration>0?fmtTime(s.timerDuration):'Off'}</button>
+      <button data-act="open-target" class="pill${s.target>0?' on':''}">🎯 ${s.target>0?s.target:'Off'}</button>
+    </div>`;
+
+    // ── Team totals strip ──
+    if(s.teamMode){
+      h+=`<div style="flex:none;display:flex;gap:8px;padding:10px 14px;background:var(--bg);border-bottom:1px solid var(--line)">`;
+      for(let i=0;i<s.teamCount;i++){
+        const t=d.teamTotals[i], lead=d.anyTeamScore&&t===d.teamMax, c=TEAMCOLORS[i];
+        h+=`<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;padding:9px 12px;border-radius:14px;background:${c}${lead?'2e':'18'};border:1px solid ${lead?c:'transparent'}">
+          <div style="display:flex;align-items:center;gap:5px">
+            <div style="width:9px;height:9px;border-radius:50%;flex:none;background:${c}"></div>
+            <span style="font:700 11px 'Archivo';color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(s.teamNames[i])}</span>
+            <span style="font-size:11px">${lead?'👑':''}</span>
+          </div>
+          <div style="font:800 26px 'Chivo Mono';color:var(--text);font-variant-numeric:tabular-nums;line-height:1">${t}</div>
+        </div>`;
+      }
+      h+=`</div>`;
+    }
+
+    // ── Player panels ──
+    h+=`<div class="noscroll" data-scroll="panels" style="flex:1;overflow-y:auto;display:flex;flex-direction:column">`;
+    s.players.forEach((p,i)=>{
+      const color=s.teamMode?TEAMCOLORS[p.team||0]:PALETTE[p.ci];
+      const isLeader=d.anyScore&&p.score===d.max;
+      const isActive=i===d.activeIdx;
+      h+=`<div style="position:relative;flex:${isLeader?'1.4':'1'};min-height:${isLeader?150:120}px;background:${color};border-bottom:2px solid rgba(0,0,0,.18);${isActive?'box-shadow:inset 0 0 0 3px #fff;z-index:2':(isLeader?'z-index:1':'')}">
+        <div style="position:absolute;top:14px;left:18px;right:18px;display:flex;align-items:center;gap:8px;z-index:2">
+          <button data-act="dot" data-id="${p.id}" title="Change color / team" style="width:16px;height:16px;border-radius:50%;border:2px solid rgba(255,255,255,.75);background:transparent;cursor:pointer;flex:none"></button>
+          <input value="${esc(p.name)}" data-change="rename" data-id="${p.id}" style="flex:1;min-width:0;background:transparent;border:none;outline:none;color:#fff;font:800 17px 'Archivo';padding:0;text-shadow:0 1px 3px rgba(0,0,0,.35)" />
+          ${s.teamMode?`<span style="font:800 9px 'Chivo Mono';letter-spacing:.06em;color:#fff;background:rgba(0,0,0,.22);padding:3px 7px;border-radius:7px;white-space:nowrap">${esc(s.teamNames[p.team||0]||'')}</span>`:''}
+          <span style="font:800 16px 'Archivo'">${isLeader?'👑':''}</span>
+          <button data-act="remove" data-id="${p.id}" ${min?'disabled':''} style="width:22px;height:22px;border-radius:50%;border:none;background:rgba(0,0,0,.22);color:#fff;font-size:11px;cursor:${min?'default':'pointer'};flex:none;opacity:${min?.3:1}">✕</button>
+        </div>
+        <button data-act="dec" data-id="${p.id}" style="position:absolute;left:0;bottom:0;width:82px;top:44px;background:rgba(0,0,0,.16);border:none;color:rgba(255,255,255,.9);font:700 32px 'Archivo';cursor:pointer">−</button>
+        <button data-act="inc" data-id="${p.id}" style="position:absolute;inset:44px 0 0 82px;background:transparent;border:none;color:#fff;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;text-shadow:0 2px 8px rgba(0,0,0,.28)">
+          <span data-score="${p.id}" style="font:900 clamp(40px,12.5vw,66px) 'Chivo Mono';line-height:1;font-variant-numeric:tabular-nums">${p.score}</span>
+          <span style="font:700 10px 'Chivo Mono';line-height:1;letter-spacing:.18em;opacity:.72">TAP +${s.step}</span>
+        </button>
+      </div>`;
+    });
+    h+=`</div>`;
+
+    // ── Turn strip ──
+    h+=`<div style="flex:none;display:flex;align-items:center;gap:11px;padding:11px 16px;background:linear-gradient(90deg,${activeColor}22,var(--stripend) 70%);border-top:1px solid var(--line)">
+      <div style="width:10px;height:10px;border-radius:50%;flex:none;background:${activeColor};box-shadow:0 0 10px ${activeColor}"></div>
+      <div style="flex:1;min-width:0">
+        <div style="font:700 9px 'Chivo Mono';letter-spacing:.16em;color:var(--sub)">ROUND ${s.round}</div>
+        <div style="font:800 15px 'Archivo';color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(d.active?d.active.name:'')}'s turn</div>
+      </div>
+      ${s.timerDuration>0?`<button id="timerbadge" data-act="timer-run" title="Pause/resume" class="badge${(s.timeLeft<=5&&s.timerRunning)?' warn':''}">${(s.timerRunning?'':'⏸ ')+fmtTime(s.timeLeft)}</button>`:''}
+      <button data-act="end-turn" style="flex:none;height:42px;padding:0 18px;border-radius:13px;border:none;background:var(--accentface);color:var(--accenttext);font:800 14px 'Archivo';cursor:pointer">End turn ▸</button>
+    </div>`;
+
+    // ── Bottom control bar ──
+    h+=`<div style="flex:none;padding:12px 14px max(30px, calc(12px + env(safe-area-inset-bottom,0px)));background:var(--bar);display:flex;align-items:center;gap:7px">
+      <span style="font:700 9px 'Chivo Mono';color:var(--muted);letter-spacing:.12em;margin-right:1px">STEP</span>
+      <button data-act="step" data-v="1" class="chip${s.step===1?' on':''}">1</button>
+      <button data-act="step" data-v="5" class="chip${s.step===5?' on':''}">5</button>
+      <button data-act="step" data-v="10" class="chip${s.step===10?' on':''}">10</button>
+      <div style="flex:1"></div>
+      <button data-act="add" ${full?'disabled':''} title="Add player" style="height:44px;padding:0 15px;border-radius:13px;border:1px solid var(--ctrl-bd);background:var(--ctrl);color:${full?'var(--muted)':'var(--text)'};font:800 14px 'Archivo';cursor:${full?'default':'pointer'}">+ Add</button>
+      <button data-act="undo" ${s.hist.length?'':'disabled'} title="Undo" style="width:44px;height:44px;border-radius:13px;border:1px solid var(--ctrl-bd);background:var(--ctrl);color:${s.hist.length?'var(--text)':'var(--muted)'};font-size:17px;cursor:${s.hist.length?'pointer':'default'};opacity:${s.hist.length?1:.6}">↶</button>
+      <button data-act="open-settings" title="Settings" class="sqbtn">⚙️</button>
+      <button data-act="reset" title="Reset scores" class="sqbtn" style="color:#e5484d">⟳</button>
+    </div>`;
+
+    // ── Reset confirm ──
+    if(s.confirm){
+      h+=`<div class="scrim${anim('confirm')}" style="z-index:50"><div class="sheet">
+        <div class="title">Reset all scores?</div>
+        <div class="subtitle">Every score goes back to 0. Players and colors stay.</div>
+        <div style="display:flex;gap:10px;margin-top:20px">
+          <button data-act="cancel-reset" style="flex:1;height:50px;border-radius:14px;border:1px solid var(--line2);background:transparent;color:var(--text);font:800 15px 'Archivo';cursor:pointer">Keep playing</button>
+          <button data-act="do-reset" style="flex:1;height:50px;border-radius:14px;border:none;background:#e5484d;color:#fff;font:800 15px 'Archivo';cursor:pointer">Reset</button>
+        </div>
+      </div></div>`;
+    }
+
+    // ── Win target sheet ──
+    if(s.targetSheet){
+      h+=`<div class="scrim${anim('target')}" style="z-index:50"><div class="sheet">
+        <div class="title">Win target</div>
+        <div class="subtitle">First to reach this score wins. Set to Off to just keep counting.</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:18px">
+          ${[0,10,21,50,100].map(t=>`<button data-act="target-pick" data-v="${t}" class="opt${s.target===t?' on':''}">${t===0?'Off':t}</button>`).join('')}
+        </div>
+        <div style="display:flex;gap:8px;margin-top:14px">
+          <input type="number" value="${s.target>0?s.target:''}" data-change="target-input" placeholder="Custom" class="numfield" />
+          <button data-act="close-target" class="primary">Done</button>
+        </div>
+      </div></div>`;
+    }
+
+    // ── Settings sheet ──
+    if(s.soundSheet){
+      const swRow=(label,sub,act,on)=>`<div class="setrow">
+        <div><div style="font:800 16px 'Archivo';color:var(--text)">${label}</div>
+        <div style="font:500 12px 'Archivo';color:var(--sub);margin-top:2px">${sub}</div></div>
+        <button data-act="${act}" class="sw${on?' on':''}"><span class="knob"></span></button>
+      </div>`;
+      h+=`<div class="scrim${anim('settings')}" style="z-index:58"><div class="sheet noscroll" data-scroll="settings" style="max-height:82%;overflow-y:auto">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div class="title">Settings</div>
+          <button data-act="close-settings" class="closex">✕</button>
+        </div>
+        ${swRow('Light theme','Switch between dark and light','toggle-theme',s.theme==='light')}
+        ${swRow('Team vs team','Group players into teams; totals combine','toggle-teammode',s.teamMode)}
+        ${s.teamMode?`<div style="padding:14px 2px 6px;border-bottom:1px solid var(--line)">
+          <div style="font:700 10px 'Chivo Mono';color:var(--sub);letter-spacing:.12em;margin-bottom:10px">HOW MANY TEAMS</div>
+          <div style="display:flex;gap:8px">
+            ${[2,3,4].map(n=>`<button data-act="team-count" data-v="${n}" class="tcchip${s.teamCount===n?' on':''}">${n}</button>`).join('')}
+          </div>
+          <div style="font:700 10px 'Chivo Mono';color:var(--sub);letter-spacing:.12em;margin:16px 0 10px">TEAM NAMES · tap a player's dot to switch teams</div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            ${s.teamNames.slice(0,s.teamCount).map((nm,i)=>`<div style="display:flex;align-items:center;gap:10px">
+              <div style="width:14px;height:14px;border-radius:50%;flex:none;background:${TEAMCOLORS[i]}"></div>
+              <input value="${esc(nm)}" data-change="team-name" data-i="${i}" style="flex:1;min-width:0;height:44px;background:var(--field);border:1px solid var(--line2);border-radius:12px;color:var(--text);font:700 14px 'Archivo';padding:0 12px;outline:none" />
+            </div>`).join('')}
+          </div>
+        </div>`:''}
+        ${swRow('Sound effects','Blips on score, buzzer on time-up','toggle-sound',s.sound)}
+        ${swRow('Haptics','Vibrate on taps (supported devices)','toggle-haptics',s.haptics)}
+      </div></div>`;
+    }
+
+    // ── Games sheet ──
+    if(s.gamesSheet){
+      h+=`<div class="scrim col${anim('games')}" style="z-index:57"><div class="sheet list">
+        <div style="flex:none;display:flex;align-items:center;justify-content:space-between;padding:24px 24px 14px">
+          <div><div class="title">Games</div>
+          <div style="font:500 12px 'Archivo';color:var(--sub);margin-top:3px">Auto-saved · reopens where you left off</div></div>
+          <button data-act="close-games" class="closex">✕</button>
+        </div>
+        <div style="flex:none;padding:0 20px 16px;display:flex;gap:8px">
+          <input value="${esc(s.saveName)}" data-change="save-name" placeholder="Name this game" style="flex:1;min-width:0;height:50px;background:var(--field);border:1px solid var(--line2);border-radius:14px;color:var(--text);font:700 14px 'Archivo';padding:0 14px;outline:none" />
+          <button data-act="save-game" style="flex:none;padding:0 20px;height:50px;border-radius:14px;border:none;background:#22c55e;color:#04140a;font:800 14px 'Archivo';cursor:pointer">💾 Save</button>
+        </div>
+        <div class="noscroll" data-scroll="saves" style="flex:1;overflow-y:auto;padding:0 20px 0;display:flex;flex-direction:column;gap:9px">
+          ${s.saves.length===0?`<div style="text-align:center;color:var(--muted);font:600 14px 'Archivo';padding:36px 0">No saved games yet.<br/>Save the current game to reopen it later.</div>`:''}
+          ${s.saves.map(g=>{
+            const ps=(g.snap&&g.snap.players)||[];
+            const top=[...ps].sort((a,b)=>b.score-a.score)[0];
+            const dd=new Date(g.date);
+            const meta=ps.length+' players · '+(top?esc(top.name)+' '+top.score:'—')+' · '+dd.toLocaleDateString([],{month:'short',day:'numeric'});
+            return `<div style="display:flex;align-items:stretch;gap:8px;flex:none">
+              <button data-act="load-game" data-id="${g.id}" style="flex:1;min-width:0;text-align:left;background:var(--field);border:1px solid var(--ctrl-bd);border-radius:15px;padding:13px 15px;cursor:pointer">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <div style="font:800 15px 'Archivo';color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(g.name)}</div>
+                  ${ps.slice(0,6).map(p=>`<div style="width:8px;height:8px;border-radius:50%;flex:none;background:${PALETTE[p.ci]}"></div>`).join('')}
+                </div>
+                <div style="font:600 11px 'Chivo Mono';color:var(--sub2);margin-top:5px">${meta}</div>
+              </button>
+              <button data-act="del-game" data-id="${g.id}" style="flex:none;width:46px;border-radius:15px;border:1px solid var(--ctrl-bd);background:var(--field);color:#e5484d;font-size:15px;cursor:pointer">🗑</button>
+            </div>`;
+          }).join('')}
+        </div>
+      </div></div>`;
+    }
+
+    // ── Timer sheet ──
+    if(s.timerSheet){
+      h+=`<div class="scrim${anim('timer')}" style="z-index:50"><div class="sheet">
+        <div class="title">Turn timer</div>
+        <div class="subtitle">Each turn counts down. At zero it buzzes and passes to the next player.</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:18px">
+          ${[0,15,30,45,60].map(t=>`<button data-act="timer-pick" data-v="${t}" class="opt${s.timerDuration===t?' on':''}">${t===0?'Off':fmtTime(t)}</button>`).join('')}
+        </div>
+        <div style="display:flex;gap:8px;margin-top:14px">
+          <input type="number" value="${s.timerDuration>0?s.timerDuration:''}" data-change="timer-input" placeholder="Custom sec" class="numfield" />
+          <button data-act="close-timer" class="primary">Done</button>
+        </div>
+      </div></div>`;
+    }
+
+    // ── History sheet ──
+    if(s.logSheet){
+      h+=`<div class="scrim col${anim('log')}" style="z-index:55"><div class="sheet list" style="max-height:78%">
+        <div style="flex:none;display:flex;align-items:center;justify-content:space-between;padding:24px 24px 14px">
+          <div><div class="title">History</div>
+          <div style="font:500 12px 'Archivo';color:var(--sub);margin-top:3px">${logCount} plays · newest first</div></div>
+          <button data-act="close-log" class="closex">✕</button>
+        </div>
+        <div class="noscroll" data-scroll="log" style="flex:1;overflow-y:auto;padding:0 20px 0">
+          ${s.log.length===0?`<div style="text-align:center;color:var(--muted);font:600 14px 'Archivo';padding:40px 0">No plays yet. Start scoring!</div>`:''}
+          ${[...s.log].reverse().map(e=>{
+            if(e.kind==='divider'||e.kind==='round'){
+              return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;font:800 11px 'Chivo Mono';color:var(--muted);justify-content:center;letter-spacing:.1em">${e.kind==='round'?('— Round '+e.round+' —'):'— New game —'}</div>`;
+            }
+            return `<div style="display:flex;align-items:center;gap:10px;padding:11px 4px;border-bottom:1px solid var(--line)">
+              <div style="width:9px;height:9px;border-radius:50%;flex:none;background:${PALETTE[e.ci]}"></div>
+              <div style="flex:1;min-width:0;font:700 14px 'Archivo';color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(e.name)}</div>
+              <div style="font:800 15px 'Chivo Mono';color:${e.delta>=0?'#22c55e':'#e5484d'};font-variant-numeric:tabular-nums">${(e.delta>=0?'+':'−')+Math.abs(e.delta)}</div>
+              <div style="width:52px;text-align:right;font:700 13px 'Chivo Mono';color:var(--sub2);font-variant-numeric:tabular-nums">= ${e.total}</div>
+            </div>`;
+          }).join('')}
+        </div>
+      </div></div>`;
+    }
+
+    // ── Winner takeover ──
+    if(open.winner){
+      h+=`<div style="position:absolute;inset:0;z-index:60;background:${d.winner.bg};display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:32px;${this._openSheets.winner?'':'animation:fadein .2s'}">
+        <div style="font:900 64px 'Archivo';${this._openSheets.winner?'':'animation:pop .4s ease-out'}">👑</div>
+        <div style="font:700 12px 'Chivo Mono';letter-spacing:.28em;color:rgba(255,255,255,.7);margin-top:14px">WINNER</div>
+        <div style="font:900 40px 'Archivo';color:#fff;margin-top:4px;text-shadow:0 2px 12px rgba(0,0,0,.3);word-break:break-word;max-width:100%">${esc(d.winner.name)}</div>
+        <div style="font:800 26px 'Chivo Mono';color:rgba(255,255,255,.85);margin-top:6px">${d.winner.score} pts · target ${s.target}</div>
+        <div style="display:flex;flex-direction:column;gap:10px;margin-top:34px;width:100%;max-width:280px">
+          <button data-act="play-again" style="height:52px;border-radius:15px;border:none;background:#fff;color:#141414;font:800 16px 'Archivo';cursor:pointer">New game</button>
+          <button data-act="keep-going" style="height:52px;border-radius:15px;border:1.5px solid rgba(255,255,255,.5);background:transparent;color:#fff;font:800 16px 'Archivo';cursor:pointer">Keep playing</button>
+        </div>
+      </div>`;
+    }
+
+    app.innerHTML=h;
+    this._openSheets=open;
+
+    // restore scroll positions
+    app.querySelectorAll('[data-scroll]').forEach(el=>{if(scrolls[el.dataset.scroll]!=null)el.scrollTop=scrolls[el.dataset.scroll]});
+
+    // score bump animation, only for the score that just changed
+    if(this._lastBump){
+      const el=app.querySelector(`[data-score="${this._lastBump}"]`);
+      if(el) el.classList.add('bump');
+      this._lastBump=null;
+    }
+  }
+};
+
+document.getElementById('app').addEventListener('click',(e)=>{
+  const btn=e.target.closest('[data-act]');
+  if(!btn||btn.disabled) return;
+  const id=btn.dataset.id, v=parseInt(btn.dataset.v);
+  switch(btn.dataset.act){
+    case 'open-games': App.setState({gamesSheet:true,saves:App.loadSaves(),saveName:defaultName()}); break;
+    case 'close-games': App.setState({gamesSheet:false}); break;
+    case 'open-log': App.setState({logSheet:true}); break;
+    case 'close-log': App.setState({logSheet:false}); break;
+    case 'open-timer': App.setState({timerSheet:true}); break;
+    case 'close-timer': App.setState({timerSheet:false}); break;
+    case 'open-target': App.setState({targetSheet:true}); break;
+    case 'close-target': App.setState({targetSheet:false}); break;
+    case 'open-settings': App.setState({soundSheet:true}); break;
+    case 'close-settings': App.setState({soundSheet:false}); break;
+    case 'dot': App.state.teamMode?App.cycleTeam(id):App.cycleColor(id); break;
+    case 'remove': App.removePlayer(id); break;
+    case 'inc': App.change(id,App.state.step); break;
+    case 'dec': App.change(id,-App.state.step); break;
+    case 'timer-run': App.toggleTimerRun(); break;
+    case 'end-turn': App.endTurn(); break;
+    case 'step': App.setState({step:v}); break;
+    case 'add': App.addPlayer(); break;
+    case 'undo': App.undo(); break;
+    case 'reset': App.setState({confirm:true}); break;
+    case 'cancel-reset': App.setState({confirm:false}); break;
+    case 'do-reset': App.doReset(); break;
+    case 'target-pick': App.setState({target:v,targetSheet:false,winnerAck:false}); break;
+    case 'timer-pick': App.setTimer(v); break;
+    case 'toggle-theme': App.setState(s=>({theme:s.theme==='light'?'dark':'light'})); break;
+    case 'toggle-teammode': App.toggleTeamMode(); break;
+    case 'toggle-sound': App.setState(s=>({sound:!s.sound})); break;
+    case 'toggle-haptics': App.setState(s=>({haptics:!s.haptics})); break;
+    case 'team-count': App.setTeamCount(v); break;
+    case 'save-game': App.saveGame(); break;
+    case 'load-game': App.loadGame(id); break;
+    case 'del-game': App.deleteGame(id); break;
+    case 'play-again': App.playAgain(); break;
+    case 'keep-going': App.setState({winnerAck:true}); break;
+  }
+});
+document.getElementById('app').addEventListener('change',(e)=>{
+  const el=e.target.closest('[data-change]');
+  if(!el) return;
+  switch(el.dataset.change){
+    case 'rename': App.rename(el.dataset.id,el.value); break;
+    case 'team-name': App.renameTeam(parseInt(el.dataset.i),el.value); break;
+    case 'save-name': App.setState({saveName:el.value}); break;
+    case 'target-input': {const v=Math.max(0,Math.min(9999,parseInt(el.value)||0)); App.setState({target:v,winnerAck:false}); break;}
+    case 'timer-input': {const v=Math.max(0,Math.min(3600,parseInt(el.value)||0)); App.setState({timerDuration:v,timeLeft:v,timerRunning:v>0}); break;}
+  }
+});
+
+App.init();
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>{navigator.serviceWorker.register('sw.js').catch(()=>{})});
+}
+</script>
+</body>
+</html>
