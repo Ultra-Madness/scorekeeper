@@ -2,12 +2,22 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<!-- viewport-fit=cover is deliberately absent. Combined with a standalone web
+     view it pushes the layout under the status bar and home indicator, which is
+     the other half of the iOS coordinate desync. Without it iOS keeps the view
+     inside the safe area, so drawn position and touch position agree. The black
+     theme colour means the inset areas are invisible anyway. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
 <title>Scorekeeper</title>
 <meta name="theme-color" content="#0a0a0a">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<!-- NOT black-translucent. That makes the standalone web view extend under the
+     status bar, and on iOS it desynchronises rendering from touch hit-testing by
+     the status bar height (~47-59px) — everything draws that far above where it
+     actually responds, so the bottom row only activates near the screen edge.
+     Safari never applies this tag, which is why Safari behaved correctly. -->
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="apple-mobile-web-app-title" content="Scorekeeper">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -20,7 +30,12 @@
   body{font-family:'Archivo',system-ui,sans-serif;-webkit-font-smoothing:antialiased;background:#0a0a0a}
   button,input{font-family:inherit}
   input{-webkit-user-select:text;user-select:text}
-  #app{position:fixed;inset:0;display:flex;flex-direction:column;background:var(--bg);overflow:hidden;
+  /* Size to the VISIBLE viewport, not the layout viewport. With `inset:0` a
+     mobile browser resolves height against the large viewport (URL bar hidden),
+     so the layout runs taller than the screen and the bottom control bar falls
+     below the fold — leaving the turn strip where Reset appears to be.
+     dvh tracks the dynamic viewport; JS pins it exactly on older devices. */
+  #app{position:fixed;left:0;top:0;width:100%;height:100vh;height:100dvh;background:var(--bg);overflow:hidden;
     --bg:#141414;--bar:#0a0a0a;--sheet:#1a1a1a;--field:#111;--ctrl:#1a1a1a;--ctrl-bd:#2a2a2a;--line:#262626;--line2:#333;
     --text:#fff;--sub:#9a9a9a;--sub2:#8a8a8a;--muted:#666;--accentface:#fff;--accenttext:#141414;
     --pillbd:rgba(255,255,255,.18);--pillbg:rgba(255,255,255,.06);--pilltext:#fff;--pillon-bd:rgba(255,255,255,.5);--pillon-bg:rgba(255,255,255,.14);
@@ -30,6 +45,9 @@
     --text:#141414;--sub:#7a776e;--sub2:#8a877e;--muted:#a8a49a;--accentface:#141414;--accenttext:#ffffff;
     --pillbd:rgba(0,0,0,.14);--pillbg:rgba(0,0,0,.04);--pilltext:#141414;--pillon-bd:rgba(0,0,0,.3);--pillon-bg:rgba(0,0,0,.08);
     --stripend:#ffffff;--switchoff:#d2cfc7;--badgebg:rgba(0,0,0,.06);--badgebd:rgba(0,0,0,.15);--badgetext:#141414}
+  #board{position:absolute;inset:0;display:flex;flex-direction:column;overflow:hidden}
+  #overlays{position:absolute;inset:0;pointer-events:none}
+  #overlays>*{pointer-events:auto}
   .noscroll::-webkit-scrollbar{display:none}
   .noscroll{scrollbar-width:none}
   @keyframes sheetup{from{transform:translateY(100%)}to{transform:translateY(0)}}
@@ -65,39 +83,71 @@
   .sqbtn{width:44px;height:44px;border-radius:13px;border:1px solid var(--ctrl-bd);background:var(--ctrl);font-size:16px;cursor:pointer}
   .badge{flex:none;height:42px;padding:0 12px;border-radius:13px;border:1px solid var(--badgebd);background:var(--badgebg);color:var(--badgetext);font:800 15px 'Chivo Mono';cursor:pointer;font-variant-numeric:tabular-nums}
   .badge.warn{border-color:#e5484d;background:rgba(229,72,77,.2);color:#ff6b70}
+
+  /* ── Player panels ───────────────────────────────────────────────
+     Every panel is the SAME size at all times. The leader is marked
+     with a crown only — never by resizing — so tap targets never move. */
+  .panel{position:relative;flex:1 1 0;min-height:104px;border-bottom:2px solid rgba(0,0,0,.18);overflow:hidden}
+  .panel.active{box-shadow:inset 0 0 0 3px #fff;z-index:2}
+  /* The score button fills the whole panel, so there is no dead zone. */
+  .incbtn{position:absolute;inset:0;width:100%;background:transparent;border:none;color:#fff;cursor:pointer;padding:0;z-index:0}
+  .decbtn{position:absolute;left:0;top:0;bottom:0;width:82px;background:rgba(0,0,0,.16);border:none;color:rgba(255,255,255,.9);font:700 32px 'Archivo';cursor:pointer;z-index:2}
+  .pscore{position:absolute;left:82px;right:0;top:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;pointer-events:none;z-index:1;text-shadow:0 2px 8px rgba(0,0,0,.28)}
+  .pscore .n{font:900 clamp(36px,11vw,60px) 'Chivo Mono';line-height:1;font-variant-numeric:tabular-nums;color:#fff}
+  .pscore .hint{font:700 10px 'Chivo Mono';line-height:1;letter-spacing:.18em;opacity:.72;color:#fff}
+  /* Header sits above the score button, but only its BUTTONS catch taps.
+     Gaps and the name label let taps fall through to scoring. */
+  .phead{position:absolute;top:10px;left:18px;right:14px;display:flex;align-items:center;gap:8px;z-index:3;pointer-events:none}
+  .phead button,.phead input{pointer-events:auto}
+  .pname{flex:1;min-width:0;color:#fff;font:800 17px 'Archivo';text-shadow:0 1px 3px rgba(0,0,0,.35);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .pnameinput{flex:1;min-width:0;background:rgba(0,0,0,.28);border:1px solid rgba(255,255,255,.5);border-radius:8px;outline:none;color:#fff;font:800 17px 'Archivo';padding:3px 8px}
+  .pdot{width:16px;height:16px;border-radius:50%;border:2px solid rgba(255,255,255,.75);background:transparent;cursor:pointer;flex:none;padding:0}
+  .picon{width:24px;height:24px;border-radius:50%;border:none;background:rgba(0,0,0,.22);color:#fff;font-size:11px;cursor:pointer;flex:none;padding:0;line-height:1}
+  .picon[disabled]{opacity:.3;cursor:default}
+  .teamtag{font:800 9px 'Chivo Mono';letter-spacing:.06em;color:#fff;background:rgba(0,0,0,.22);padding:3px 7px;border-radius:7px;white-space:nowrap;flex:none}
+  .crown{font:800 16px 'Archivo';flex:none}
 </style>
 </head>
 <body>
-<div id="app" data-theme="dark"></div>
+<div id="app" data-theme="dark"><div id="board"></div><div id="overlays"></div></div>
 <script>
 'use strict';
+// Written by build.js from a hash of the actual file contents — never edited by hand.
+const BUILD='v7 · 23d57f7';
 const PALETTE=['#e5484d','#3b82f6','#22c55e','#f59e0b','#8b5cf6','#06b6d4','#ec4899','#84cc16'];
 const TEAMCOLORS=['#3b82f6','#e5484d','#22c55e','#f59e0b'];
-const uid=(p)=>p+'_'+Math.random().toString(36).slice(2,8);
+// IDs route every tap to a player, so they must be unique — no exceptions.
+// The old version used Math.random().toString(36).slice(2,8), which silently
+// yields a SHORT string when the random value has few base-36 digits (0.5 ->
+// "0.i" -> "i"). Two players sharing an id makes find() return the earlier one,
+// so tapping the later player scores the earlier one. A counter removes the
+// possibility entirely rather than making it merely unlikely.
+let _uidSeq=0;
+const uid=(p)=>p+'_'+(++_uidSeq).toString(36)+Math.random().toString(36).slice(2).padEnd(6,'0').slice(0,6);
 const esc=(s)=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const readJSON=(k)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):null}catch(e){return null}};
 const writeJSON=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
 const fmtTime=(sec)=>{const m=Math.floor(sec/60),s=sec%60;return m+':'+String(s).padStart(2,'0')};
 const defaultName=()=>{const d=new Date();return d.toLocaleDateString([],{month:'short',day:'numeric'})+' '+d.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})};
-
 const seed=(names)=>names.map((n,i)=>({id:uid('p'),name:n,score:0,ci:i%PALETTE.length,team:i%2}));
 
 const App={
   state:{
-    sound:true, step:1, confirm:false, hist:[],
-    target:0, targetSheet:false, winnerAck:false,
+    sound:true, step:1, confirm:false,
+    undo:[],                    // action stack — reverses whatever you actually did last
+    target:0, targetSheet:false, ackedWin:null,
     log:[], logSheet:false, round:1, turnIndex:0,
     timerDuration:0, timeLeft:0, timerRunning:false, timerSheet:false,
     gamesSheet:false, saveName:'', saves:[],
     haptics:true, soundSheet:false,
     teamMode:false, teamCount:2, teamNames:['Team A','Team B','Team C','Team D'],
-    theme:'dark',
+    theme:'dark', editingId:null,
     players: seed(['Red','Blue','Green','Gold'])
   },
-  _lastBump:null,
   _openSheets:{},
-  _persistKey:'',
+  _rosterKey:'',
 
+  // ── lifecycle ───────────────────────────────────────────────────
   init(){
     const cur=readJSON('scorekeeper_current');
     if(cur&&Array.isArray(cur.players)&&cur.players.length>=2){
@@ -105,23 +155,17 @@ const App={
     }
     const th=readJSON('scorekeeper_theme');
     if(th==='light'||th==='dark') this.state.theme=th;
-    this._persistKey=this.persistKey();
-    this.render();
+    const pr=readJSON('scorekeeper_prefs');
+    if(pr){ if(typeof pr.sound==='boolean')this.state.sound=pr.sound; if(typeof pr.haptics==='boolean')this.state.haptics=pr.haptics; }
+    this.buildBoard(); this.buildOverlays(); this.sync();
     setInterval(()=>this.tick(),1000);
   },
+  persist(){ writeJSON('scorekeeper_current',this.snapshot()) },
+  snapshot(){const{players,round,turnIndex,target,step,timerDuration,log,teamMode,teamCount,teamNames}=this.state;
+    return{players,round,turnIndex,target,step,timerDuration,log,teamMode,teamCount,teamNames}},
+  rosterKey(){const s=this.state;return JSON.stringify([s.players.map(p=>p.id),s.teamMode,s.teamCount])},
 
-  setState(patch){
-    if(typeof patch==='function') patch=patch(this.state);
-    if(!patch) return;
-    Object.assign(this.state,patch);
-    const k=this.persistKey();
-    if(k!==this._persistKey){ writeJSON('scorekeeper_current',this.snapshot()); this._persistKey=k; }
-    if('theme' in patch) writeJSON('scorekeeper_theme',this.state.theme);
-    this.render();
-  },
-  persistKey(){const s=this.state;return JSON.stringify([s.players,s.round,s.turnIndex,s.target,s.step,s.timerDuration,s.log.length,s.teamMode,s.teamCount,s.teamNames])},
-  snapshot(){const{players,round,turnIndex,target,step,timerDuration,log,teamMode,teamCount,teamNames}=this.state;return{players,round,turnIndex,target,step,timerDuration,log,teamMode,teamCount,teamNames}},
-
+  // ── feedback ────────────────────────────────────────────────────
   beep(up){
     const s=this.state;
     if(s.haptics&&navigator.vibrate) navigator.vibrate(up?12:[8,20,8]);
@@ -152,188 +196,313 @@ const App={
     }catch(e){}
   },
 
-  change(id,delta){
-    this.beep(delta>=0);
-    this._lastBump=id;
-    this.setState(s=>{
-      const src=s.players.find(p=>p.id===id);
-      if(!src) return null;
-      const total=src.score+delta;
-      const entry={id:uid('e'),kind:'score',name:src.name,ci:src.ci,delta,total};
-      return{
-        hist:[...s.hist,s.players.map(p=>({...p}))].slice(-50),
-        log:[...s.log,entry].slice(-200),
-        players:s.players.map(p=>p.id===id?{...p,score:total}:p)
-      };
-    });
+  // ── undo stack ──────────────────────────────────────────────────
+  push(a){ const u=this.state.undo; u.push(a); if(u.length>500) u.shift(); },
+  dropLog(id){ if(!id) return; const i=this.state.log.findIndex(e=>e.id===id); if(i>-1) this.state.log.splice(i,1); },
+
+  undoLast(){
+    const s=this.state, a=s.undo.pop();
+    if(!a) return;
+    switch(a.t){
+      case 'score':{ const p=s.players.find(p=>p.id===a.id); if(p) p.score-=a.delta; this.dropLog(a.logId); break; }
+      case 'turn':{ s.turnIndex=a.turn; s.round=a.round; s.timeLeft=s.timerDuration; this.dropLog(a.logId); break; }
+      case 'add':{ const i=s.players.findIndex(p=>p.id===a.id); if(i>-1) s.players.splice(i,1);
+                   s.turnIndex=Math.min(s.turnIndex,s.players.length-1); break; }
+      case 'remove':{ s.players.splice(Math.min(a.index,s.players.length),0,a.player); break; }
+      case 'rename':{ const p=s.players.find(p=>p.id===a.id); if(p) p.name=a.prev; break; }
+      case 'color':{ const p=s.players.find(p=>p.id===a.id); if(p) p.ci=a.prev; break; }
+      case 'team':{ const p=s.players.find(p=>p.id===a.id); if(p) p.team=a.prev; break; }
+      case 'teamname':{ s.teamNames[a.i]=a.prev; break; }
+      case 'reset':{ s.players=a.players.map(p=>({...p})); s.round=a.round; s.turnIndex=a.turn;
+                     s.timeLeft=s.timerDuration; this.dropLog(a.logId); break; }
+    }
+    this.afterChange(a.t==='add'||a.t==='remove'||a.t==='reset');
   },
-  undo(){this.setState(s=>{if(!s.hist.length)return null;const h=[...s.hist];const players=h.pop();
-    const log=[...s.log];if(log.length&&log[log.length-1].kind==='score')log.pop();
-    return{players,hist:h,log}})},
-  cycleColor(id){this.setState(s=>({players:s.players.map(p=>p.id===id?{...p,ci:(p.ci+1)%PALETTE.length}:p)}))},
-  cycleTeam(id){this.setState(s=>({players:s.players.map(p=>p.id===id?{...p,team:((p.team||0)+1)%s.teamCount}:p)}))},
-  rename(id,v){this.setState(s=>({players:s.players.map(p=>p.id===id?{...p,name:v}:p)}))},
-  addPlayer(){this.setState(s=>{if(s.players.length>=8)return null;
-    const used=s.players.map(p=>p.ci);let ci=s.players.length%PALETTE.length;
+
+  // Central commit: re-sync, rebuild the roster only when it actually changed,
+  // clear a stale winner ack, persist.
+  afterChange(rosterMaybeChanged){
+    const s=this.state;
+    if(s.ackedWin && !this.derived().winner) s.ackedWin=null;
+    if(rosterMaybeChanged||this.rosterKey()!==this._rosterKey) this.buildBoard();
+    this.sync(); this.buildOverlays(); this.persist();
+  },
+
+  // ── actions ─────────────────────────────────────────────────────
+  change(id,delta){
+    const s=this.state, p=s.players.find(p=>p.id===id);
+    if(!p) return;
+    this.beep(delta>=0);
+    const logId=uid('e');
+    p.score+=delta;
+    s.log.push({id:logId,kind:'score',name:p.name,ci:p.ci,delta,total:p.score});
+    if(s.log.length>200) s.log.shift();
+    this.push({t:'score',id,delta,logId});
+    this.afterChange(false);
+    this.bump(id);
+  },
+  cycleColor(id){const p=this.state.players.find(p=>p.id===id); if(!p)return;
+    this.push({t:'color',id,prev:p.ci}); p.ci=(p.ci+1)%PALETTE.length; this.afterChange(false)},
+  cycleTeam(id){const s=this.state,p=s.players.find(p=>p.id===id); if(!p)return;
+    this.push({t:'team',id,prev:p.team||0}); p.team=((p.team||0)+1)%s.teamCount; this.afterChange(false)},
+  commitRename(id,v,prev){const p=this.state.players.find(p=>p.id===id); if(!p)return;
+    if(v===prev)return; this.push({t:'rename',id,prev}); p.name=v; this.afterChange(false)},
+  addPlayer(){const s=this.state; if(s.players.length>=8)return;
+    const used=s.players.map(p=>p.ci); let ci=s.players.length%PALETTE.length;
     for(let i=0;i<PALETTE.length;i++){if(!used.includes(i)){ci=i;break}}
-    return{players:[...s.players,{id:uid('p'),name:'Player '+(s.players.length+1),score:0,ci,team:s.players.length%s.teamCount}]}})},
-  removePlayer(id){this.setState(s=>{if(s.players.length<=2)return null;const players=s.players.filter(p=>p.id!==id);
-    return{players,turnIndex:Math.min(s.turnIndex,players.length-1)}})},
-  doReset(){this.setState(s=>({confirm:false,winnerAck:false,round:1,turnIndex:0,timeLeft:s.timerDuration,
-    hist:[...s.hist,s.players.map(p=>({...p}))].slice(-50),
-    log:[...s.log,{id:uid('e'),kind:'divider'}].slice(-200),
-    players:s.players.map(p=>({...p,score:0}))}))},
-  endTurn(){this.setState(s=>{
-    const n=s.players.length;const next=(s.turnIndex+1)%n;const wrapped=next===0;
-    const round=wrapped?s.round+1:s.round;
-    const log=wrapped?[...s.log,{id:uid('e'),kind:'round',round}].slice(-200):s.log;
-    return{turnIndex:next,round,log,timeLeft:s.timerDuration}})},
-  playAgain(){this.setState(s=>({winnerAck:false,hist:[],log:[],round:1,turnIndex:0,timeLeft:s.timerDuration,players:s.players.map(p=>({...p,score:0}))}))},
-  setTimer(sec){this.setState({timerDuration:sec,timeLeft:sec,timerRunning:sec>0,timerSheet:false})},
-  toggleTimerRun(){this.setState(s=>s.timerDuration>0?{timerRunning:!s.timerRunning}:null)},
-  toggleTeamMode(){this.setState(s=>{const on=!s.teamMode;
-    const players=on?s.players.map((p,i)=>({...p,team:(typeof p.team==='number'&&p.team<s.teamCount)?p.team:(i%s.teamCount)})):s.players;
-    return{teamMode:on,players}})},
-  setTeamCount(n){this.setState(s=>({teamCount:n,players:s.players.map((p,i)=>({...p,team:(typeof p.team==='number'&&p.team<n)?p.team:(i%n)}))}))},
-  renameTeam(i,v){this.setState(s=>{const teamNames=[...s.teamNames];teamNames[i]=v;return{teamNames}})},
+    // Name by the lowest FREE number, not roster length. Naming by length means
+    // that after any removal the next add reuses a name that already exists —
+    // producing two "Player 6"s and numbering that no longer matches position.
+    const taken=new Set(s.players.map(p=>p.name));
+    let num=s.players.length+1;
+    while(taken.has('Player '+num)) num++;
+    const np={id:uid('p'),name:'Player '+num,score:0,ci,team:s.players.length%s.teamCount};
+    s.players.push(np); this.push({t:'add',id:np.id}); this.afterChange(true)},
+  removePlayer(id){const s=this.state; if(s.players.length<=2)return;
+    const i=s.players.findIndex(p=>p.id===id); if(i<0)return;
+    this.push({t:'remove',player:{...s.players[i]},index:i});
+    s.players.splice(i,1); s.turnIndex=Math.min(s.turnIndex,s.players.length-1); this.afterChange(true)},
+  doReset(){const s=this.state, logId=uid('e');
+    this.push({t:'reset',players:s.players.map(p=>({...p})),round:s.round,turn:s.turnIndex,logId});
+    s.players.forEach(p=>p.score=0);
+    s.log.push({id:logId,kind:'divider'}); if(s.log.length>200)s.log.shift();
+    s.round=1; s.turnIndex=0; s.confirm=false; s.ackedWin=null; s.timeLeft=s.timerDuration;
+    this.afterChange(false)},
+  // `auto` means the turn timer ran out rather than someone pressing End turn.
+  // Automatic advances must NOT go on the undo stack — otherwise a running timer
+  // quietly stacks up dead entries in front of the player's actual last move.
+  endTurn(auto){const s=this.state, n=s.players.length;
+    const prevTurn=s.turnIndex, prevRound=s.round;
+    const next=(s.turnIndex+1)%n, wrapped=next===0;
+    let logId=null;
+    s.turnIndex=next;
+    if(wrapped){ s.round=prevRound+1; logId=uid('e');
+      s.log.push({id:logId,kind:'round',round:s.round}); if(s.log.length>200)s.log.shift(); }
+    s.timeLeft=s.timerDuration;
+    if(!auto) this.push({t:'turn',turn:prevTurn,round:prevRound,logId});
+    this.afterChange(false)},
+  playAgain(){const s=this.state;
+    s.undo=[]; s.log=[]; s.round=1; s.turnIndex=0; s.ackedWin=null; s.timeLeft=s.timerDuration;
+    s.players.forEach(p=>p.score=0); this.afterChange(false)},
+  setTimer(sec){const s=this.state; s.timerDuration=sec; s.timeLeft=sec; s.timerRunning=sec>0; s.timerSheet=false; this.afterChange(false)},
+  toggleTimerRun(){const s=this.state; if(s.timerDuration>0){s.timerRunning=!s.timerRunning; this.afterChange(false)}},
+  toggleTeamMode(){const s=this.state; s.teamMode=!s.teamMode;
+    if(s.teamMode) s.players.forEach((p,i)=>{if(typeof p.team!=='number'||p.team>=s.teamCount)p.team=i%s.teamCount});
+    this.afterChange(true)},
+  setTeamCount(n){const s=this.state; s.teamCount=n;
+    s.players.forEach((p,i)=>{if(typeof p.team!=='number'||p.team>=n)p.team=i%n}); this.afterChange(true)},
+  renameTeam(i,v){const s=this.state; this.push({t:'teamname',i,prev:s.teamNames[i]}); s.teamNames[i]=v; this.afterChange(false)},
+
   loadSaves(){const a=readJSON('scorekeeper_saves');return Array.isArray(a)?a:[]},
-  saveGame(){const name=(this.state.saveName||'').trim()||defaultName();
+  saveGame(){const s=this.state, name=(s.saveName||'').trim()||defaultName();
     const entry={id:'g_'+Date.now().toString(36),name,date:Date.now(),snap:this.snapshot()};
     const saves=[entry,...this.loadSaves()].slice(0,50);
     writeJSON('scorekeeper_saves',saves);
-    this.setState({saves,saveName:defaultName()})},
-  loadGame(id){const g=this.loadSaves().find(g=>g.id===id);if(!g||!g.snap)return;
-    this.setState({...g.snap,timeLeft:g.snap.timerDuration||0,timerRunning:false,confirm:false,winnerAck:false,gamesSheet:false,targetSheet:false,timerSheet:false,logSheet:false,hist:[]})},
-  deleteGame(id){const saves=this.loadSaves().filter(g=>g.id!==id);writeJSON('scorekeeper_saves',saves);this.setState({saves})},
+    s.saves=saves; s.saveName=defaultName(); this.afterChange(false)},
+  loadGame(id){const g=this.loadSaves().find(g=>g.id===id); if(!g||!g.snap)return;
+    Object.assign(this.state,g.snap,{timeLeft:g.snap.timerDuration||0,timerRunning:false,
+      confirm:false,ackedWin:null,undo:[],gamesSheet:false,targetSheet:false,timerSheet:false,logSheet:false,editingId:null});
+    this.afterChange(true)},
+  deleteGame(id){const saves=this.loadSaves().filter(g=>g.id!==id);
+    writeJSON('scorekeeper_saves',saves); this.state.saves=saves; this.afterChange(false)},
 
+  // ── timer ───────────────────────────────────────────────────────
   tick(){
     const s=this.state;
-    if(s.timerDuration<=0||!s.timerRunning||s.confirm||s.targetSheet||s.timerSheet||s.logSheet||s.gamesSheet||s.soundSheet) return;
-    if(s.timeLeft>1){
-      if(s.timeLeft<=4) this.beep(false);
-      s.timeLeft--;
-      // targeted DOM update so a focused name input isn't blown away every second
-      const b=document.getElementById('timerbadge');
-      if(b){b.textContent=(s.timerRunning?'':'⏸ ')+fmtTime(s.timeLeft);b.classList.toggle('warn',s.timeLeft<=5&&s.timerRunning)}
-      return;
-    }
-    this.timeUp();
-    this.endTurn();
+    if(s.timerDuration<=0||!s.timerRunning) return;
+    if(s.confirm||s.targetSheet||s.timerSheet||s.logSheet||s.gamesSheet||s.soundSheet) return;
+    if(s.timeLeft<=0){ this.timeUp(); this.endTurn(true); return; }  // auto-advance: not undoable
+    s.timeLeft--;
+    if(s.timeLeft<=3&&s.timeLeft>0) this.beep(false);
+    this.syncTimer();
+  },
+  syncTimer(){
+    const s=this.state, b=document.getElementById('timerbadge');
+    if(!b) return;
+    b.textContent=(s.timerRunning?'':'⏸ ')+fmtTime(Math.max(0,s.timeLeft));
+    b.classList.toggle('warn',s.timeLeft<=5&&s.timerRunning);
   },
 
+  // ── derived ─────────────────────────────────────────────────────
   derived(){
     const s=this.state;
     const max=Math.max(...s.players.map(p=>p.score));
     const anyScore=s.players.some(p=>p.score!==0);
-    const leader=s.players.find(p=>anyScore&&p.score===max);
-    const activeIdx=s.turnIndex%s.players.length;
+    const leaders=anyScore?s.players.filter(p=>p.score===max):[];
+    const activeIdx=s.players.length?s.turnIndex%s.players.length:0;
     const active=s.players[activeIdx];
     const teamTotals=[];
     for(let i=0;i<s.teamCount;i++) teamTotals.push(s.players.filter(p=>(p.team||0)===i).reduce((a,p)=>a+p.score,0));
     const teamMax=Math.max(...teamTotals);
     const anyTeamScore=teamTotals.some(t=>t!==0);
-    const leadTeamIdx=teamTotals.indexOf(teamMax);
-    let winner;
-    if(s.teamMode){
-      winner=(s.target>0&&anyTeamScore&&teamMax>=s.target)?{name:s.teamNames[leadTeamIdx],score:teamMax,bg:TEAMCOLORS[leadTeamIdx]}:null;
-    }else{
-      winner=(s.target>0&&max>=s.target&&leader)?{name:leader.name,score:leader.score,bg:PALETTE[leader.ci]}:null;
+    let winner=null;
+    if(s.target>0){
+      if(s.teamMode){
+        if(anyTeamScore&&teamMax>=s.target){
+          const idx=teamTotals.map((t,i)=>t===teamMax?i:-1).filter(i=>i>-1);
+          winner={names:idx.map(i=>s.teamNames[i]),score:teamMax,bg:TEAMCOLORS[idx[0]]};
+        }
+      }else if(anyScore&&max>=s.target&&leaders.length){
+        winner={names:leaders.map(p=>p.name),score:max,bg:PALETTE[leaders[0].ci]};
+      }
     }
-    return{max,anyScore,leader,activeIdx,active,teamTotals,teamMax,anyTeamScore,winner};
+    if(winner) winner.key=winner.names.join('|')+'@'+winner.score;
+    return{max,anyScore,leaders,activeIdx,active,teamTotals,teamMax,anyTeamScore,winner};
   },
 
-  render(){
-    const s=this.state, d=this.derived();
-    const app=document.getElementById('app');
-    app.dataset.theme=s.theme;
-
-    // preserve scroll positions across re-render
-    const scrolls={};
-    app.querySelectorAll('[data-scroll]').forEach(el=>scrolls[el.dataset.scroll]=el.scrollTop);
-
-    const open={confirm:s.confirm,target:s.targetSheet,settings:s.soundSheet,games:s.gamesSheet,timer:s.timerSheet,log:s.logSheet,winner:!!d.winner&&!s.winnerAck};
-    const anim=(key)=>open[key]&&!this._openSheets[key]?'':' noanim';
-
-    const min=s.players.length<=2, full=s.players.length>=8;
-    const activeColor=d.active?(s.teamMode?TEAMCOLORS[d.active.team||0]:PALETTE[d.active.ci]):'#888';
-    const logCount=s.log.filter(e=>e.kind==='score').length;
-
+  // ── board: built once per roster change, then updated in place ──
+  buildBoard(){
+    const s=this.state;
+    const board=document.getElementById('board');
     let h='';
 
-    // ── Toolbar ──
     h+=`<div style="flex:none;padding:calc(env(safe-area-inset-top,0px) + 10px) 12px 12px;display:flex;align-items:center;gap:7px;background:var(--bg)">
       <button data-act="open-games" style="display:flex;align-items:center;gap:4px;padding:6px 4px;background:transparent;border:none;color:var(--text);font:900 16px 'Archivo';letter-spacing:-.01em;cursor:pointer;flex:none">Games <span style="font-size:10px;opacity:.6">▾</span></button>
+      <span id="verlbl" title="Build version" style="flex:0 1 auto;min-width:0;overflow:hidden;white-space:nowrap;font:700 10px 'Chivo Mono';color:var(--muted);letter-spacing:.03em;padding-top:2px">${esc(BUILD)}</span>
       <div style="flex:1"></div>
-      <button data-act="open-log" class="pill">📋 ${logCount}</button>
-      <button data-act="open-timer" class="pill${s.timerDuration>0?' on':''}">⏱ ${s.timerDuration>0?fmtTime(s.timerDuration):'Off'}</button>
-      <button data-act="open-target" class="pill${s.target>0?' on':''}">🎯 ${s.target>0?s.target:'Off'}</button>
+      <button data-act="open-log" class="pill" id="logpill">📋 0</button>
+      <button data-act="open-timer" class="pill" id="timerpill">⏱ Off</button>
+      <button data-act="open-target" class="pill" id="targetpill">🎯 Off</button>
     </div>`;
 
-    // ── Team totals strip ──
     if(s.teamMode){
-      h+=`<div style="flex:none;display:flex;gap:8px;padding:10px 14px;background:var(--bg);border-bottom:1px solid var(--line)">`;
+      h+=`<div id="teamstrip" style="flex:none;display:flex;gap:8px;padding:10px 14px;background:var(--bg);border-bottom:1px solid var(--line)">`;
       for(let i=0;i<s.teamCount;i++){
-        const t=d.teamTotals[i], lead=d.anyTeamScore&&t===d.teamMax, c=TEAMCOLORS[i];
-        h+=`<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;padding:9px 12px;border-radius:14px;background:${c}${lead?'2e':'18'};border:1px solid ${lead?c:'transparent'}">
+        h+=`<div data-team="${i}" style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;padding:9px 12px;border-radius:14px;background:${TEAMCOLORS[i]}18;border:1px solid transparent">
           <div style="display:flex;align-items:center;gap:5px">
-            <div style="width:9px;height:9px;border-radius:50%;flex:none;background:${c}"></div>
-            <span style="font:700 11px 'Archivo';color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(s.teamNames[i])}</span>
-            <span style="font-size:11px">${lead?'👑':''}</span>
+            <div style="width:9px;height:9px;border-radius:50%;flex:none;background:${TEAMCOLORS[i]}"></div>
+            <span data-teamname="${i}" style="font:700 11px 'Archivo';color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(s.teamNames[i])}</span>
+            <span data-teamcrown="${i}" style="font-size:11px"></span>
           </div>
-          <div style="font:800 26px 'Chivo Mono';color:var(--text);font-variant-numeric:tabular-nums;line-height:1">${t}</div>
+          <div data-teamtotal="${i}" style="font:800 26px 'Chivo Mono';color:var(--text);font-variant-numeric:tabular-nums;line-height:1">0</div>
         </div>`;
       }
       h+=`</div>`;
     }
 
-    // ── Player panels ──
-    h+=`<div class="noscroll" data-scroll="panels" style="flex:1;overflow-y:auto;display:flex;flex-direction:column">`;
-    s.players.forEach((p,i)=>{
-      const color=s.teamMode?TEAMCOLORS[p.team||0]:PALETTE[p.ci];
-      const isLeader=d.anyScore&&p.score===d.max;
-      const isActive=i===d.activeIdx;
-      h+=`<div style="position:relative;flex:${isLeader?'1.4':'1'};min-height:${isLeader?150:120}px;background:${color};border-bottom:2px solid rgba(0,0,0,.18);${isActive?'box-shadow:inset 0 0 0 3px #fff;z-index:2':(isLeader?'z-index:1':'')}">
-        <div style="position:absolute;top:14px;left:18px;right:18px;display:flex;align-items:center;gap:8px;z-index:2">
-          <button data-act="dot" data-id="${p.id}" title="Change color / team" style="width:16px;height:16px;border-radius:50%;border:2px solid rgba(255,255,255,.75);background:transparent;cursor:pointer;flex:none"></button>
-          <input value="${esc(p.name)}" data-change="rename" data-id="${p.id}" style="flex:1;min-width:0;background:transparent;border:none;outline:none;color:#fff;font:800 17px 'Archivo';padding:0;text-shadow:0 1px 3px rgba(0,0,0,.35)" />
-          ${s.teamMode?`<span style="font:800 9px 'Chivo Mono';letter-spacing:.06em;color:#fff;background:rgba(0,0,0,.22);padding:3px 7px;border-radius:7px;white-space:nowrap">${esc(s.teamNames[p.team||0]||'')}</span>`:''}
-          <span style="font:800 16px 'Archivo'">${isLeader?'👑':''}</span>
-          <button data-act="remove" data-id="${p.id}" ${min?'disabled':''} style="width:22px;height:22px;border-radius:50%;border:none;background:rgba(0,0,0,.22);color:#fff;font-size:11px;cursor:${min?'default':'pointer'};flex:none;opacity:${min?.3:1}">✕</button>
+    h+=`<div class="noscroll" id="panels" style="flex:1;overflow-y:auto;display:flex;flex-direction:column">`;
+    s.players.forEach(p=>{
+      h+=`<div class="panel" data-panel="${p.id}">
+        <button class="incbtn" data-act="inc" data-id="${p.id}" aria-label="Add points to ${esc(p.name)}"></button>
+        <div class="pscore"><span class="n" data-score="${p.id}">0</span><span class="hint" data-hint="${p.id}">TAP +1</span></div>
+        <button class="decbtn" data-act="dec" data-id="${p.id}" aria-label="Subtract points">−</button>
+        <div class="phead">
+          <button class="pdot" data-act="dot" data-id="${p.id}" title="Change color / team"></button>
+          <span class="pname" data-nameslot="${p.id}">${esc(p.name)}</span>
+          ${s.teamMode?`<span class="teamtag" data-teamtag="${p.id}"></span>`:''}
+          <span class="crown" data-crown="${p.id}"></span>
+          <button class="picon" data-act="edit" data-id="${p.id}" title="Rename">✎</button>
+          <button class="picon" data-act="remove" data-id="${p.id}" title="Remove">✕</button>
         </div>
-        <button data-act="dec" data-id="${p.id}" style="position:absolute;left:0;bottom:0;width:82px;top:44px;background:rgba(0,0,0,.16);border:none;color:rgba(255,255,255,.9);font:700 32px 'Archivo';cursor:pointer">−</button>
-        <button data-act="inc" data-id="${p.id}" style="position:absolute;inset:44px 0 0 82px;background:transparent;border:none;color:#fff;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;text-shadow:0 2px 8px rgba(0,0,0,.28)">
-          <span data-score="${p.id}" style="font:900 clamp(40px,12.5vw,66px) 'Chivo Mono';line-height:1;font-variant-numeric:tabular-nums">${p.score}</span>
-          <span style="font:700 10px 'Chivo Mono';line-height:1;letter-spacing:.18em;opacity:.72">TAP +${s.step}</span>
-        </button>
       </div>`;
     });
     h+=`</div>`;
 
-    // ── Turn strip ──
-    h+=`<div style="flex:none;display:flex;align-items:center;gap:11px;padding:11px 16px;background:linear-gradient(90deg,${activeColor}22,var(--stripend) 70%);border-top:1px solid var(--line)">
-      <div style="width:10px;height:10px;border-radius:50%;flex:none;background:${activeColor};box-shadow:0 0 10px ${activeColor}"></div>
+    h+=`<div id="turnstrip" style="flex:none;display:flex;align-items:center;gap:11px;padding:11px 16px;background:var(--stripend);border-top:1px solid var(--line)">
+      <div id="turndot" style="width:10px;height:10px;border-radius:50%;flex:none"></div>
       <div style="flex:1;min-width:0">
-        <div style="font:700 9px 'Chivo Mono';letter-spacing:.16em;color:var(--sub)">ROUND ${s.round}</div>
-        <div style="font:800 15px 'Archivo';color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(d.active?d.active.name:'')}'s turn</div>
+        <div id="roundlbl" style="font:700 9px 'Chivo Mono';letter-spacing:.16em;color:var(--sub)">ROUND 1</div>
+        <div id="turnlbl" style="font:800 15px 'Archivo';color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>
       </div>
-      ${s.timerDuration>0?`<button id="timerbadge" data-act="timer-run" title="Pause/resume" class="badge${(s.timeLeft<=5&&s.timerRunning)?' warn':''}">${(s.timerRunning?'':'⏸ ')+fmtTime(s.timeLeft)}</button>`:''}
+      <button id="timerbadge" data-act="timer-run" title="Pause/resume" class="badge" style="display:none"></button>
       <button data-act="end-turn" style="flex:none;height:42px;padding:0 18px;border-radius:13px;border:none;background:var(--accentface);color:var(--accenttext);font:800 14px 'Archivo';cursor:pointer">End turn ▸</button>
     </div>`;
 
-    // ── Bottom control bar ──
     h+=`<div style="flex:none;padding:12px 14px max(30px, calc(12px + env(safe-area-inset-bottom,0px)));background:var(--bar);display:flex;align-items:center;gap:7px">
       <span style="font:700 9px 'Chivo Mono';color:var(--muted);letter-spacing:.12em;margin-right:1px">STEP</span>
-      <button data-act="step" data-v="1" class="chip${s.step===1?' on':''}">1</button>
-      <button data-act="step" data-v="5" class="chip${s.step===5?' on':''}">5</button>
-      <button data-act="step" data-v="10" class="chip${s.step===10?' on':''}">10</button>
+      <button data-act="step" data-v="1" class="chip" data-step="1">1</button>
+      <button data-act="step" data-v="5" class="chip" data-step="5">5</button>
+      <button data-act="step" data-v="10" class="chip" data-step="10">10</button>
       <div style="flex:1"></div>
-      <button data-act="add" ${full?'disabled':''} title="Add player" style="height:44px;padding:0 15px;border-radius:13px;border:1px solid var(--ctrl-bd);background:var(--ctrl);color:${full?'var(--muted)':'var(--text)'};font:800 14px 'Archivo';cursor:${full?'default':'pointer'}">+ Add</button>
-      <button data-act="undo" ${s.hist.length?'':'disabled'} title="Undo" style="width:44px;height:44px;border-radius:13px;border:1px solid var(--ctrl-bd);background:var(--ctrl);color:${s.hist.length?'var(--text)':'var(--muted)'};font-size:17px;cursor:${s.hist.length?'pointer':'default'};opacity:${s.hist.length?1:.6}">↶</button>
+      <button data-act="add" id="addbtn" title="Add player" style="height:44px;padding:0 15px;border-radius:13px;border:1px solid var(--ctrl-bd);background:var(--ctrl);color:var(--text);font:800 14px 'Archivo';cursor:pointer">+ Add</button>
+      <button data-act="undo" id="undobtn" title="Undo" style="width:44px;height:44px;border-radius:13px;border:1px solid var(--ctrl-bd);background:var(--ctrl);color:var(--text);font-size:17px;cursor:pointer">↶</button>
       <button data-act="open-settings" title="Settings" class="sqbtn">⚙️</button>
       <button data-act="reset" title="Reset scores" class="sqbtn" style="color:#e5484d">⟳</button>
     </div>`;
 
-    // ── Reset confirm ──
+    board.innerHTML=h;
+    this._rosterKey=this.rosterKey();
+  },
+
+  // In-place update. Destroys nothing, so a tap can never land on a dead node.
+  sync(){
+    const s=this.state, d=this.derived();
+    document.getElementById('app').dataset.theme=s.theme;
+
+    const logCount=s.log.filter(e=>e.kind==='score').length;
+    const lp=document.getElementById('logpill'); if(lp) lp.textContent='📋 '+logCount;
+    const tp=document.getElementById('timerpill');
+    if(tp){ tp.textContent='⏱ '+(s.timerDuration>0?fmtTime(s.timerDuration):'Off'); tp.classList.toggle('on',s.timerDuration>0) }
+    const gp=document.getElementById('targetpill');
+    if(gp){ gp.textContent='🎯 '+(s.target>0?s.target:'Off'); gp.classList.toggle('on',s.target>0) }
+
+    s.players.forEach((p,i)=>{
+      const panel=document.querySelector(`[data-panel="${p.id}"]`);
+      if(!panel) return;
+      const color=s.teamMode?TEAMCOLORS[p.team||0]:PALETTE[p.ci];
+      if(panel.style.background!==color) panel.style.background=color;
+      panel.classList.toggle('active',i===d.activeIdx);
+      const sc=panel.querySelector(`[data-score="${p.id}"]`);
+      if(sc&&sc.textContent!==String(p.score)) sc.textContent=p.score;
+      const hint=panel.querySelector(`[data-hint="${p.id}"]`);
+      if(hint) hint.textContent='TAP +'+s.step;
+      const cr=panel.querySelector(`[data-crown="${p.id}"]`);
+      if(cr) cr.textContent=(d.anyScore&&p.score===d.max)?'👑':'';
+      const nm=panel.querySelector(`[data-nameslot="${p.id}"]`);
+      if(nm&&nm.tagName==='SPAN'&&nm.textContent!==p.name) nm.textContent=p.name;
+      const tt=panel.querySelector(`[data-teamtag="${p.id}"]`);
+      if(tt) tt.textContent=s.teamNames[p.team||0]||'';
+      const rm=panel.querySelector(`[data-act="remove"][data-id="${p.id}"]`);
+      if(rm) rm.disabled=s.players.length<=2;
+    });
+
+    if(s.teamMode){
+      for(let i=0;i<s.teamCount;i++){
+        const lead=d.anyTeamScore&&d.teamTotals[i]===d.teamMax;
+        const box=document.querySelector(`[data-team="${i}"]`);
+        if(box) box.style.borderColor=lead?TEAMCOLORS[i]:'transparent';
+        const tot=document.querySelector(`[data-teamtotal="${i}"]`); if(tot) tot.textContent=d.teamTotals[i];
+        const cr=document.querySelector(`[data-teamcrown="${i}"]`); if(cr) cr.textContent=lead?'👑':'';
+        const nm=document.querySelector(`[data-teamname="${i}"]`); if(nm) nm.textContent=s.teamNames[i];
+      }
+    }
+
+    const activeColor=d.active?(s.teamMode?TEAMCOLORS[d.active.team||0]:PALETTE[d.active.ci]):'#888';
+    const dot=document.getElementById('turndot');
+    if(dot){ dot.style.background=activeColor; dot.style.boxShadow='0 0 10px '+activeColor }
+    const strip=document.getElementById('turnstrip');
+    if(strip) strip.style.background=`linear-gradient(90deg,${activeColor}22,var(--stripend) 70%)`;
+    const rl=document.getElementById('roundlbl'); if(rl) rl.textContent='ROUND '+s.round;
+    const tl=document.getElementById('turnlbl'); if(tl) tl.textContent=(d.active?d.active.name:'')+"'s turn";
+
+    const tb=document.getElementById('timerbadge');
+    if(tb){ tb.style.display=s.timerDuration>0?'':'none'; this.syncTimer() }
+
+    [1,5,10].forEach(v=>{const c=document.querySelector(`[data-step="${v}"]`); if(c) c.classList.toggle('on',s.step===v)});
+    const ab=document.getElementById('addbtn');
+    if(ab){ const full=s.players.length>=8; ab.disabled=full; ab.style.opacity=full?.5:1; ab.style.cursor=full?'default':'pointer' }
+    const ub=document.getElementById('undobtn');
+    if(ub){ const none=!s.undo.length; ub.disabled=none; ub.style.opacity=none?.5:1; ub.style.cursor=none?'default':'pointer' }
+  },
+
+  bump(id){
+    const el=document.querySelector(`[data-score="${id}"]`);
+    if(!el) return;
+    el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump');
+  },
+
+  // ── overlays (sheets) — separate container, never touches the board ──
+  buildOverlays(){
+    const s=this.state, d=this.derived();
+    const showWin=!!d.winner && s.ackedWin!==d.winner.key;
+    const open={confirm:s.confirm,target:s.targetSheet,settings:s.soundSheet,games:s.gamesSheet,timer:s.timerSheet,log:s.logSheet,winner:showWin};
+    const sig=JSON.stringify(open)+'|'+s.saves.length+'|'+s.log.length+'|'+s.target+'|'+s.timerDuration+'|'+s.teamCount+'|'+s.teamMode+'|'+s.theme+'|'+s.sound+'|'+s.haptics+'|'+s.saveName+'|'+s.teamNames.join(',');
+    if(sig===this._ovSig) return;            // nothing to redraw
+    this._ovSig=sig;
+    const anim=(k)=>open[k]&&!this._openSheets[k]?'':' noanim';
+    const logCount=s.log.filter(e=>e.kind==='score').length;
+    let h='';
+
     if(s.confirm){
       h+=`<div class="scrim${anim('confirm')}" style="z-index:50"><div class="sheet">
         <div class="title">Reset all scores?</div>
@@ -344,8 +513,6 @@ const App={
         </div>
       </div></div>`;
     }
-
-    // ── Win target sheet ──
     if(s.targetSheet){
       h+=`<div class="scrim${anim('target')}" style="z-index:50"><div class="sheet">
         <div class="title">Win target</div>
@@ -359,15 +526,13 @@ const App={
         </div>
       </div></div>`;
     }
-
-    // ── Settings sheet ──
     if(s.soundSheet){
       const swRow=(label,sub,act,on)=>`<div class="setrow">
         <div><div style="font:800 16px 'Archivo';color:var(--text)">${label}</div>
         <div style="font:500 12px 'Archivo';color:var(--sub);margin-top:2px">${sub}</div></div>
         <button data-act="${act}" class="sw${on?' on':''}"><span class="knob"></span></button>
       </div>`;
-      h+=`<div class="scrim${anim('settings')}" style="z-index:58"><div class="sheet noscroll" data-scroll="settings" style="max-height:82%;overflow-y:auto">
+      h+=`<div class="scrim${anim('settings')}" style="z-index:58"><div class="sheet noscroll" style="max-height:82%;overflow-y:auto">
         <div style="display:flex;align-items:center;justify-content:space-between">
           <div class="title">Settings</div>
           <button data-act="close-settings" class="closex">✕</button>
@@ -391,8 +556,6 @@ const App={
         ${swRow('Haptics','Vibrate on taps (supported devices)','toggle-haptics',s.haptics)}
       </div></div>`;
     }
-
-    // ── Games sheet ──
     if(s.gamesSheet){
       h+=`<div class="scrim col${anim('games')}" style="z-index:57"><div class="sheet list">
         <div style="flex:none;display:flex;align-items:center;justify-content:space-between;padding:24px 24px 14px">
@@ -404,7 +567,7 @@ const App={
           <input value="${esc(s.saveName)}" data-change="save-name" placeholder="Name this game" style="flex:1;min-width:0;height:50px;background:var(--field);border:1px solid var(--line2);border-radius:14px;color:var(--text);font:700 14px 'Archivo';padding:0 14px;outline:none" />
           <button data-act="save-game" style="flex:none;padding:0 20px;height:50px;border-radius:14px;border:none;background:#22c55e;color:#04140a;font:800 14px 'Archivo';cursor:pointer">💾 Save</button>
         </div>
-        <div class="noscroll" data-scroll="saves" style="flex:1;overflow-y:auto;padding:0 20px 0;display:flex;flex-direction:column;gap:9px">
+        <div class="noscroll" style="flex:1;overflow-y:auto;padding:0 20px 0;display:flex;flex-direction:column;gap:9px">
           ${s.saves.length===0?`<div style="text-align:center;color:var(--muted);font:600 14px 'Archivo';padding:36px 0">No saved games yet.<br/>Save the current game to reopen it later.</div>`:''}
           ${s.saves.map(g=>{
             const ps=(g.snap&&g.snap.players)||[];
@@ -425,8 +588,6 @@ const App={
         </div>
       </div></div>`;
     }
-
-    // ── Timer sheet ──
     if(s.timerSheet){
       h+=`<div class="scrim${anim('timer')}" style="z-index:50"><div class="sheet">
         <div class="title">Turn timer</div>
@@ -440,8 +601,6 @@ const App={
         </div>
       </div></div>`;
     }
-
-    // ── History sheet ──
     if(s.logSheet){
       h+=`<div class="scrim col${anim('log')}" style="z-index:55"><div class="sheet list" style="max-height:78%">
         <div style="flex:none;display:flex;align-items:center;justify-content:space-between;padding:24px 24px 14px">
@@ -449,7 +608,7 @@ const App={
           <div style="font:500 12px 'Archivo';color:var(--sub);margin-top:3px">${logCount} plays · newest first</div></div>
           <button data-act="close-log" class="closex">✕</button>
         </div>
-        <div class="noscroll" data-scroll="log" style="flex:1;overflow-y:auto;padding:0 20px 0">
+        <div class="noscroll" style="flex:1;overflow-y:auto;padding:0 20px 0">
           ${s.log.length===0?`<div style="text-align:center;color:var(--muted);font:600 14px 'Archivo';padding:40px 0">No plays yet. Start scoring!</div>`:''}
           ${[...s.log].reverse().map(e=>{
             if(e.kind==='divider'||e.kind==='round'){
@@ -465,13 +624,12 @@ const App={
         </div>
       </div></div>`;
     }
-
-    // ── Winner takeover ──
-    if(open.winner){
+    if(showWin){
+      const many=d.winner.names.length>1;
       h+=`<div style="position:absolute;inset:0;z-index:60;background:${d.winner.bg};display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:32px;${this._openSheets.winner?'':'animation:fadein .2s'}">
         <div style="font:900 64px 'Archivo';${this._openSheets.winner?'':'animation:pop .4s ease-out'}">👑</div>
-        <div style="font:700 12px 'Chivo Mono';letter-spacing:.28em;color:rgba(255,255,255,.7);margin-top:14px">WINNER</div>
-        <div style="font:900 40px 'Archivo';color:#fff;margin-top:4px;text-shadow:0 2px 12px rgba(0,0,0,.3);word-break:break-word;max-width:100%">${esc(d.winner.name)}</div>
+        <div style="font:700 12px 'Chivo Mono';letter-spacing:.28em;color:rgba(255,255,255,.7);margin-top:14px">${many?'IT&rsquo;S A TIE':'WINNER'}</div>
+        <div style="font:900 ${many?32:40}px 'Archivo';color:#fff;margin-top:4px;text-shadow:0 2px 12px rgba(0,0,0,.3);word-break:break-word;max-width:100%">${d.winner.names.map(esc).join(' &amp; ')}</div>
         <div style="font:800 26px 'Chivo Mono';color:rgba(255,255,255,.85);margin-top:6px">${d.winner.score} pts · target ${s.target}</div>
         <div style="display:flex;flex-direction:column;gap:10px;margin-top:34px;width:100%;max-width:280px">
           <button data-act="play-again" style="height:52px;border-radius:15px;border:none;background:#fff;color:#141414;font:800 16px 'Archivo';cursor:pointer">New game</button>
@@ -480,78 +638,202 @@ const App={
       </div>`;
     }
 
-    app.innerHTML=h;
+    document.getElementById('overlays').innerHTML=h;
     this._openSheets=open;
+  },
 
-    // restore scroll positions
-    app.querySelectorAll('[data-scroll]').forEach(el=>{if(scrolls[el.dataset.scroll]!=null)el.scrollTop=scrolls[el.dataset.scroll]});
-
-    // score bump animation, only for the score that just changed
-    if(this._lastBump){
-      const el=app.querySelector(`[data-score="${this._lastBump}"]`);
-      if(el) el.classList.add('bump');
-      this._lastBump=null;
-    }
+  // ── inline rename ───────────────────────────────────────────────
+  startEdit(id){
+    const slot=document.querySelector(`[data-nameslot="${id}"]`);
+    const p=this.state.players.find(p=>p.id===id);
+    if(!slot||!p||slot.tagName==='INPUT') return;
+    const inp=document.createElement('input');
+    inp.className='pnameinput'; inp.value=p.name;
+    inp.setAttribute('data-nameslot',id); inp.setAttribute('data-editing','1');
+    const prev=p.name;
+    const finish=()=>{
+      const v=(inp.value||'').trim()||prev;
+      const span=document.createElement('span');
+      span.className='pname'; span.setAttribute('data-nameslot',id); span.textContent=v;
+      if(inp.parentNode) inp.parentNode.replaceChild(span,inp);
+      this.state.editingId=null;
+      this.commitRename(id,v,prev);
+    };
+    inp.addEventListener('blur',finish);
+    inp.addEventListener('keydown',(e)=>{ if(e.key==='Enter'){e.preventDefault();inp.blur()}
+      if(e.key==='Escape'){inp.value=prev;inp.blur()} });
+    slot.parentNode.replaceChild(inp,slot);
+    this.state.editingId=id;
+    inp.focus(); inp.select();
   }
 };
 
+// ── event wiring (delegated on #app, which is never replaced) ──────
 document.getElementById('app').addEventListener('click',(e)=>{
   const btn=e.target.closest('[data-act]');
   if(!btn||btn.disabled) return;
-  const id=btn.dataset.id, v=parseInt(btn.dataset.v);
+  const id=btn.dataset.id, v=parseInt(btn.dataset.v), S=App.state;
   switch(btn.dataset.act){
-    case 'open-games': App.setState({gamesSheet:true,saves:App.loadSaves(),saveName:defaultName()}); break;
-    case 'close-games': App.setState({gamesSheet:false}); break;
-    case 'open-log': App.setState({logSheet:true}); break;
-    case 'close-log': App.setState({logSheet:false}); break;
-    case 'open-timer': App.setState({timerSheet:true}); break;
-    case 'close-timer': App.setState({timerSheet:false}); break;
-    case 'open-target': App.setState({targetSheet:true}); break;
-    case 'close-target': App.setState({targetSheet:false}); break;
-    case 'open-settings': App.setState({soundSheet:true}); break;
-    case 'close-settings': App.setState({soundSheet:false}); break;
-    case 'dot': App.state.teamMode?App.cycleTeam(id):App.cycleColor(id); break;
+    case 'open-games': S.gamesSheet=true; S.saves=App.loadSaves(); S.saveName=defaultName(); App.afterChange(false); break;
+    case 'close-games': S.gamesSheet=false; App.afterChange(false); break;
+    case 'open-log': S.logSheet=true; App.afterChange(false); break;
+    case 'close-log': S.logSheet=false; App.afterChange(false); break;
+    case 'open-timer': S.timerSheet=true; App.afterChange(false); break;
+    case 'close-timer': S.timerSheet=false; App.afterChange(false); break;
+    case 'open-target': S.targetSheet=true; App.afterChange(false); break;
+    case 'close-target': S.targetSheet=false; App.afterChange(false); break;
+    case 'open-settings': S.soundSheet=true; App.afterChange(false); break;
+    case 'close-settings': S.soundSheet=false; App.afterChange(false); break;
+    case 'dot': S.teamMode?App.cycleTeam(id):App.cycleColor(id); break;
+    case 'edit': App.startEdit(id); break;
     case 'remove': App.removePlayer(id); break;
-    case 'inc': App.change(id,App.state.step); break;
-    case 'dec': App.change(id,-App.state.step); break;
+    case 'inc': App.change(id,S.step); break;
+    case 'dec': App.change(id,-S.step); break;
     case 'timer-run': App.toggleTimerRun(); break;
     case 'end-turn': App.endTurn(); break;
-    case 'step': App.setState({step:v}); break;
+    case 'step': S.step=v; App.afterChange(false); break;
     case 'add': App.addPlayer(); break;
-    case 'undo': App.undo(); break;
-    case 'reset': App.setState({confirm:true}); break;
-    case 'cancel-reset': App.setState({confirm:false}); break;
+    case 'undo': App.undoLast(); break;
+    case 'reset': S.confirm=true; App.afterChange(false); break;
+    case 'cancel-reset': S.confirm=false; App.afterChange(false); break;
     case 'do-reset': App.doReset(); break;
-    case 'target-pick': App.setState({target:v,targetSheet:false,winnerAck:false}); break;
+    case 'target-pick': S.target=v; S.targetSheet=false; S.ackedWin=null; App.afterChange(false); break;
     case 'timer-pick': App.setTimer(v); break;
-    case 'toggle-theme': App.setState(s=>({theme:s.theme==='light'?'dark':'light'})); break;
+    case 'toggle-theme': S.theme=S.theme==='light'?'dark':'light'; writeJSON('scorekeeper_theme',S.theme); App.afterChange(false); break;
     case 'toggle-teammode': App.toggleTeamMode(); break;
-    case 'toggle-sound': App.setState(s=>({sound:!s.sound})); break;
-    case 'toggle-haptics': App.setState(s=>({haptics:!s.haptics})); break;
+    case 'toggle-sound': S.sound=!S.sound; writeJSON('scorekeeper_prefs',{sound:S.sound,haptics:S.haptics}); App.afterChange(false); break;
+    case 'toggle-haptics': S.haptics=!S.haptics; writeJSON('scorekeeper_prefs',{sound:S.sound,haptics:S.haptics}); App.afterChange(false); break;
     case 'team-count': App.setTeamCount(v); break;
     case 'save-game': App.saveGame(); break;
     case 'load-game': App.loadGame(id); break;
     case 'del-game': App.deleteGame(id); break;
     case 'play-again': App.playAgain(); break;
-    case 'keep-going': App.setState({winnerAck:true}); break;
+    case 'keep-going': { const w=App.derived().winner; S.ackedWin=w?w.key:null; App.afterChange(false); break; }
   }
 });
 document.getElementById('app').addEventListener('change',(e)=>{
   const el=e.target.closest('[data-change]');
   if(!el) return;
+  const S=App.state;
   switch(el.dataset.change){
-    case 'rename': App.rename(el.dataset.id,el.value); break;
     case 'team-name': App.renameTeam(parseInt(el.dataset.i),el.value); break;
-    case 'save-name': App.setState({saveName:el.value}); break;
-    case 'target-input': {const v=Math.max(0,Math.min(9999,parseInt(el.value)||0)); App.setState({target:v,winnerAck:false}); break;}
-    case 'timer-input': {const v=Math.max(0,Math.min(3600,parseInt(el.value)||0)); App.setState({timerDuration:v,timeLeft:v,timerRunning:v>0}); break;}
+    case 'save-name': S.saveName=el.value; break;
+    case 'target-input': S.target=Math.max(0,Math.min(9999,parseInt(el.value)||0)); S.ackedWin=null; App.afterChange(false); break;
+    case 'timer-input': { const v=Math.max(0,Math.min(3600,parseInt(el.value)||0));
+      S.timerDuration=v; S.timeLeft=v; S.timerRunning=v>0; App.afterChange(false); break; }
   }
 });
 
+// Pin the app to the visible viewport on every device, including ones without
+// dvh support and during the URL-bar show/hide animation. Without this the app
+// lays out taller than the screen and the bottom controls become untappable —
+// taps land on whatever is drawn above them instead.
+(function fitViewport(){
+  const app=document.getElementById('app');
+  const apply=()=>{
+    const vv=window.visualViewport;
+    const h=Math.round(vv?vv.height:window.innerHeight);
+    if(h>0) app.style.height=h+'px';
+  };
+  apply();
+  window.addEventListener('resize',apply);
+  window.addEventListener('orientationchange',()=>setTimeout(apply,120));
+  if(window.visualViewport){
+    visualViewport.addEventListener('resize',apply);
+    visualViewport.addEventListener('scroll',apply);
+  }
+})();
+
+/* ── Tap diagnostics ──────────────────────────────────────────────────
+   Enable with ?debug in the URL, or by tapping the version label 5 times
+   (works when installed to the home screen, where you can't edit the URL).
+
+   For every tap it records the two things that must agree:
+     dispatched — the element the BROWSER sent the event to
+     atPoint    — the element visually AT those coordinates
+   If those differ, rendering and hit-testing disagree, and `dy` measures the
+   offset. If they agree, the geometry is fine and the fault is elsewhere. */
+(function tapDiag(){
+  let hits=0, live=false, log=[];
+  const D=(el)=>{ if(!el) return '(none)';
+    const a=el.closest?el.closest('[data-act]'):null;
+    if(a) return a.dataset.act+(a.dataset.id?'#'+a.dataset.id.slice(0,6):'');
+    return (el.id?'#'+el.id:el.tagName.toLowerCase()); };
+
+  function geom(){
+    const vv=window.visualViewport, a=document.getElementById('app').getBoundingClientRect();
+    return {win:innerWidth+'x'+innerHeight,
+      vv:vv?Math.round(vv.width)+'x'+Math.round(vv.height)+' offTop'+Math.round(vv.offsetTop)+' pageTop'+Math.round(vv.pageTop)+' x'+vv.scale:'n/a',
+      app:Math.round(a.top)+'..'+Math.round(a.bottom),
+      pageY:Math.round(pageYOffset), dpr:devicePixelRatio,
+      pwa:(matchMedia('(display-mode: standalone)').matches||navigator.standalone)?'yes':'no',
+      ua:navigator.userAgent.slice(0,90)};
+  }
+  function paint(){
+    const p=document.getElementById('dbgpanel'); if(!p) return;
+    const g=geom();
+    p.innerHTML='<div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">'
+      +'<b style="flex:1">TAP DIAGNOSTICS</b>'
+      +'<button id="dbgcopy" style="font:700 10px monospace;padding:3px 7px">Copy</button>'
+      +'<button id="dbgoff" style="font:700 10px monospace;padding:3px 7px">X</button></div>'
+      +'<div style="opacity:.75">win '+g.win+' | vv '+g.vv+'<br>app '+g.app+' | pageY '+g.pageY+' | dpr '+g.dpr+' | pwa '+g.pwa+'</div>'
+      +'<hr style="border:0;border-top:1px solid #444;margin:4px 0">'
+      +(log.length?log.map(r=>
+          '<div style="margin-bottom:3px">tap '+r.tap+'<br>'
+          +'&nbsp;dispatched: <b>'+r.dispatched+'</b><br>'
+          +'&nbsp;atPoint&nbsp;&nbsp;&nbsp;: <b>'+r.atPoint+'</b>'
+          +(r.match?' <span style="color:#4ade80">MATCH</span>':' <span style="color:#f87171">MISMATCH</span>')
+          +'<br>&nbsp;dy to target: '+r.dy+'px</div>').join('')
+        :'<i>tap anything…</i>');
+    p.querySelector('#dbgcopy').onclick=(ev)=>{ev.stopPropagation();
+      navigator.clipboard.writeText(JSON.stringify({geom:geom(),taps:log},null,1))
+        .then(()=>{ev.target.textContent='Copied'},()=>{ev.target.textContent='(select text)'})};
+    p.querySelector('#dbgoff').onclick=(ev)=>{ev.stopPropagation();p.remove();live=false};
+  }
+  function enable(){
+    if(document.getElementById('dbgpanel')) return;
+    live=true;
+    const p=document.createElement('div');
+    p.id='dbgpanel';
+    p.style.cssText='position:fixed;left:6px;right:6px;top:6px;z-index:9999;background:rgba(0,0,0,.92);'
+      +'color:#fff;font:600 10px/1.35 monospace;padding:8px 10px;border-radius:10px;border:1px solid #555;'
+      +'max-height:46vh;overflow:auto;pointer-events:auto';
+    document.body.appendChild(p); paint();
+  }
+  addEventListener('pointerdown',(e)=>{
+    if(e.target&&e.target.id==='verlbl'&&++hits>=5) enable();
+    if(!live||(e.target&&e.target.closest&&e.target.closest('#dbgpanel'))) return;
+    const at=document.elementFromPoint(e.clientX,e.clientY);
+    const tr=e.target.getBoundingClientRect?e.target.getBoundingClientRect():null;
+    log.unshift({tap:Math.round(e.clientX)+','+Math.round(e.clientY),
+      dispatched:D(e.target), atPoint:D(at),
+      match:(at===e.target)||D(at)===D(e.target),
+      dy:tr?Math.round((tr.top+tr.height/2)-e.clientY):null});
+    if(log.length>6) log.pop();
+    paint();
+  },true);
+  if(/[?&]debug/.test(location.search)) addEventListener('load',enable);
+})();
+
 App.init();
 
+// Pick up a new deploy as soon as one is available.
 if('serviceWorker' in navigator){
-  window.addEventListener('load',()=>{navigator.serviceWorker.register('sw.js').catch(()=>{})});
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('sw.js').then((reg)=>{
+      reg.addEventListener('updatefound',()=>{
+        const nw=reg.installing;
+        if(!nw) return;
+        nw.addEventListener('statechange',()=>{
+          if(nw.state==='installed'&&navigator.serviceWorker.controller) nw.postMessage('skip-waiting');
+        });
+      });
+    }).catch(()=>{});
+    let reloading=false;
+    navigator.serviceWorker.addEventListener('controllerchange',()=>{
+      if(reloading) return; reloading=true; location.reload();
+    });
+  });
 }
 </script>
 </body>
